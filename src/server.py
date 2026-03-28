@@ -208,6 +208,8 @@ def timeline(
     index: int | None = None,
     track_type: str | None = None,
     track_index: int | None = None,
+    export_format: str | None = None,
+    file_path: str | None = None,
 ) -> dict:
     """Manage DaVinci Resolve timelines.
 
@@ -219,14 +221,25 @@ def timeline(
     - "get_tracks": Get track count and info. Optional: track_type (video|audio|subtitle)
     - "get_items": Get items in a track. Requires: track_type, track_index (1-based)
     - "get_markers": Get all markers on the current timeline
+    - "add_marker": Add a marker. Requires: track_index (frame number). Optional: name (color, default Blue)
+    - "delete_markers": Delete markers by color. Optional: name (color, default "All")
+    - "get_settings": Get timeline settings (resolution, framerate, etc.)
     - "duplicate": Duplicate current timeline. Optional: name
+    - "add_track": Add a track. Requires: track_type (video|audio|subtitle)
+    - "delete_track": Delete a track. Requires: track_type, track_index
+    - "export": Export timeline. Requires: file_path, export_format (AAF|EDL|FCPXML_1_8|FCPXML_1_9|DRT|OTIO|CSV|TAB)
+    - "insert_title": Insert a title at playhead. Requires: name (title template name)
+    - "insert_generator": Insert a generator at playhead. Requires: name (generator name)
+    - "delete_clips": Delete all clips on a track. Requires: track_type, track_index
 
     Args:
         action: The action to perform
-        name: Timeline name (for create, duplicate)
+        name: Timeline/title/generator name, or marker color
         index: Timeline index, 1-based (for set_current)
-        track_type: Track type: video, audio, subtitle (for get_tracks, get_items)
-        track_index: Track index, 1-based (for get_items)
+        track_type: Track type: video, audio, subtitle
+        track_index: Track index, 1-based; or frame number (for add_marker)
+        export_format: Export format (for export action)
+        file_path: File path (for export action)
     """
     proj, tl, err = resolve.get_timeline()
 
@@ -361,10 +374,261 @@ def timeline(
             return _err("Could not duplicate timeline")
         return _ok(timeline=new_tl.GetName())
 
+    elif action == "add_track":
+        if err:
+            return err
+        if not track_type:
+            return _err("'track_type' is required (video|audio|subtitle)")
+        result = tl.AddTrack(track_type)
+        return _ok(track_type=track_type, added=result)
+
+    elif action == "delete_track":
+        if err:
+            return err
+        if not track_type or not track_index:
+            return _err("'track_type' and 'track_index' are required")
+        result = tl.DeleteTrack(track_type, track_index)
+        return _ok(track_type=track_type, track_index=track_index, deleted=result)
+
+    elif action == "export":
+        if err:
+            return err
+        if not file_path:
+            return _err("'file_path' is required")
+        fmt = export_format or "FCPXML_1_9"
+        fmt_map = {
+            "AAF": 0, "DRT": 1, "EDL": 2, "FCP_7_XML": 3,
+            "FCPXML_1_8": 7, "FCPXML_1_9": 8, "FCPXML_1_10": 9,
+            "CSV": 13, "TAB": 14, "OTIO": 18,
+        }
+        fmt_val = fmt_map.get(fmt.upper())
+        if fmt_val is None:
+            return _err(f"Unknown format '{fmt}'. Valid: {', '.join(fmt_map.keys())}")
+        result = tl.Export(file_path, fmt_val, 0)
+        return _ok(file_path=file_path, format=fmt, exported=result)
+
+    elif action == "insert_title":
+        if err:
+            return err
+        if not name:
+            return _err("'name' is required (title template name, e.g. 'Text+')")
+        item = tl.InsertTitleIntoTimeline(name)
+        if not item:
+            # Try Fusion title
+            item = tl.InsertFusionTitleIntoTimeline(name)
+        if not item:
+            return _err(f"Could not insert title '{name}'")
+        return _ok(title=item.GetName(), start=item.GetStart(), end=item.GetEnd())
+
+    elif action == "insert_generator":
+        if err:
+            return err
+        if not name:
+            return _err("'name' is required (generator name)")
+        item = tl.InsertGeneratorIntoTimeline(name)
+        if not item:
+            return _err(f"Could not insert generator '{name}'")
+        return _ok(generator=item.GetName(), start=item.GetStart(), end=item.GetEnd())
+
+    elif action == "delete_clips":
+        if err:
+            return err
+        if not track_type or not track_index:
+            return _err("'track_type' and 'track_index' are required")
+        items = tl.GetItemListInTrack(track_type, track_index)
+        if not items:
+            return _ok(deleted=0)
+        result = tl.DeleteClips(items)
+        return _ok(deleted=len(items), result=result)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
-            "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, duplicate"
+            "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
+            "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips"
+        )
+
+
+# ── timeline_item ───────────────────────────────────────────────────
+
+@mcp.tool()
+@safe_tool
+def timeline_item(
+    action: str,
+    track_type: str | None = None,
+    track_index: int | None = None,
+    item_index: int | None = None,
+    property_name: str | None = None,
+    property_value: str | None = None,
+    clip_color: str | None = None,
+) -> dict:
+    """Edit individual clips/items on the timeline.
+
+    This is the core editing tool — use it to change clip properties like opacity,
+    zoom, position, rotation, speed, crop, etc.
+
+    Actions:
+    - "get_current": Get the current video item under the playhead
+    - "get_properties": Get all editable properties of a clip. Optional: track_type, track_index, item_index
+    - "set_property": Set a clip property. Requires: property_name, property_value. Optional: track_type, track_index, item_index
+    - "get_info": Get detailed info about a specific clip. Requires: track_type, track_index, item_index (0-based)
+    - "set_clip_color": Set clip color. Requires: clip_color (Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate)
+    - "clear_clip_color": Remove clip color
+    - "set_enabled": Enable/disable a clip. Requires: property_value ("true"/"false")
+    - "get_source_info": Get source frame range of the clip
+
+    Available properties for set_property:
+    Pan, Tilt, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY,
+    Pitch, Yaw, FlipX, FlipY, CropLeft, CropRight, CropTop, CropBottom, CropSoftness,
+    CropRetain, Opacity, Distortion, RetimeProcess, MotionEstimation, Scaling,
+    ResizeFilter, DynamicZoomEase, CompositeMode
+
+    Args:
+        action: The action to perform
+        track_type: Track type (default "video")
+        track_index: Track index, 1-based (default 1)
+        item_index: Item index on the track, 0-based
+        property_name: Property key (for set_property)
+        property_value: Property value as string (for set_property, set_enabled)
+        clip_color: Clip color name (for set_clip_color)
+    """
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    # Helper to get target item
+    def _get_item():
+        if item_index is not None:
+            tt = track_type or "video"
+            ti = track_index or 1
+            items = tl.GetItemListInTrack(tt, ti)
+            if not items or item_index >= len(items):
+                return None, _err(f"No item at index {item_index} on {tt} track {ti}")
+            return items[item_index], None
+        else:
+            item = tl.GetCurrentVideoItem()
+            if not item:
+                return None, _err("No current video item — select one or provide item_index")
+            return item, None
+
+    if action == "get_current":
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        return _ok(
+            name=item.GetName(),
+            start=item.GetStart(),
+            end=item.GetEnd(),
+            duration=item.GetDuration(),
+            enabled=item.GetClipEnabled(),
+            color=item.GetClipColor() if hasattr(item, "GetClipColor") else None,
+        )
+
+    elif action == "get_properties":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        props = item.GetProperty()
+        return _ok(item=item.GetName(), properties=_ser(props))
+
+    elif action == "set_property":
+        if not property_name:
+            return _err("'property_name' is required")
+        if property_value is None:
+            return _err("'property_value' is required")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        # Convert value to appropriate type
+        val = property_value
+        if val.lower() in ("true", "false"):
+            val = val.lower() == "true"
+        else:
+            try:
+                val = float(val)
+                if val == int(val):
+                    val = int(val)
+            except ValueError:
+                pass
+        result = item.SetProperty(property_name, val)
+        return _ok(item=item.GetName(), property=property_name, value=val, set=result)
+
+    elif action == "get_info":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        info = {
+            "name": item.GetName(),
+            "start": item.GetStart(),
+            "end": item.GetEnd(),
+            "duration": item.GetDuration(),
+            "enabled": item.GetClipEnabled(),
+            "color": item.GetClipColor() if hasattr(item, "GetClipColor") else None,
+            "flags": item.GetFlagList() if hasattr(item, "GetFlagList") else [],
+            "fusion_comps": item.GetFusionCompCount() if hasattr(item, "GetFusionCompCount") else 0,
+        }
+        # Source info
+        if hasattr(item, "GetSourceStartFrame"):
+            info["source_start"] = item.GetSourceStartFrame()
+            info["source_end"] = item.GetSourceEndFrame()
+        if hasattr(item, "GetLeftOffset"):
+            info["left_offset"] = item.GetLeftOffset()
+            info["right_offset"] = item.GetRightOffset()
+        # MediaPool link
+        mpi = item.GetMediaPoolItem()
+        if mpi:
+            info["media_pool_item"] = mpi.GetName()
+        return _ok(**info)
+
+    elif action == "set_clip_color":
+        if not clip_color:
+            return _err("'clip_color' is required")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.SetClipColor(clip_color)
+        return _ok(color=clip_color, set=result)
+
+    elif action == "clear_clip_color":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.ClearClipColor()
+        return _ok(cleared=result)
+
+    elif action == "set_enabled":
+        if property_value is None:
+            return _err("'property_value' is required ('true' or 'false')")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        enabled = property_value.lower() != "false"
+        result = item.SetClipEnabled(enabled)
+        return _ok(enabled=enabled, set=result)
+
+    elif action == "get_source_info":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        info = {"name": item.GetName()}
+        if hasattr(item, "GetSourceStartFrame"):
+            info["source_start_frame"] = item.GetSourceStartFrame()
+            info["source_end_frame"] = item.GetSourceEndFrame()
+        if hasattr(item, "GetLeftOffset"):
+            info["left_offset"] = item.GetLeftOffset()
+            info["right_offset"] = item.GetRightOffset()
+        mpi = item.GetMediaPoolItem()
+        if mpi:
+            info["media_pool_clip"] = mpi.GetName()
+            mark = mpi.GetMarkInOut() if hasattr(mpi, "GetMarkInOut") else None
+            if mark:
+                info["mark_in_out"] = _ser(mark)
+        return _ok(**info)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
+            "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info"
         )
 
 
@@ -392,11 +656,12 @@ def media_pool(
     - "create_timeline_from_clips": Create timeline from all clips in current folder. Requires: timeline_name
     - "get_root_folder": Navigate to root folder
     - "selected_clips": Get currently selected clips in the Media Pool
+    - "append_to_timeline": Append clips from current folder to active timeline. Optional: file_paths (clip names to filter)
 
     Args:
         action: The action to perform
         folder_name: Folder name (for set/create/delete_folder) or clip name (for get_clip_info)
-        file_paths: List of absolute file paths (for import_media)
+        file_paths: List of absolute file paths (for import_media) or clip names (for append_to_timeline)
         timeline_name: Name for new timeline (for create_timeline_from_clips)
     """
     proj, mp, err = resolve.get_media_pool()
@@ -541,11 +806,36 @@ def media_pool(
                 return _ok(folder=folder_name, deleted=result)
         return _err(f"Folder '{folder_name}' not found")
 
+    elif action == "append_to_timeline":
+        if err:
+            return err
+        # Append clips from current folder to the current timeline
+        current = mp.GetCurrentFolder()
+        clips = current.GetClipList() if current else []
+        if not clips:
+            return _err("No clips in the current folder")
+        # If file_paths is given, use it as clip name filter
+        if file_paths:
+            selected = [c for c in clips if c.GetName() in file_paths]
+            if not selected:
+                return _err(f"No matching clips found. Available: {[c.GetName() for c in clips]}")
+        else:
+            selected = clips
+        # AppendToTimeline returns a list of TimelineItems or empty list on failure
+        result = mp.AppendToTimeline(selected)
+        if result is None or (isinstance(result, list) and len(result) == 0):
+            return _err("AppendToTimeline failed — check if a timeline is active")
+        appended = result if isinstance(result, list) else [result]
+        return _ok(
+            appended=len(appended),
+            clip_names=[c.GetName() for c in selected],
+        )
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list_folders, get_current_folder, set_current_folder, "
             "create_folder, delete_folder, list_clips, get_clip_info, import_media, "
-            "create_timeline_from_clips, get_root_folder, selected_clips"
+            "create_timeline_from_clips, get_root_folder, selected_clips, append_to_timeline"
         )
 
 

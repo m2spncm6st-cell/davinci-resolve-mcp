@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (9 Tools, 60+ Actions)
+## Implementierte Tools (10 Tools, 75+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -49,13 +49,19 @@ status, get_page, set_page, get_version
 ### project(action, name)
 list, get_current, open, save, create, close
 
-### timeline(action, name, index, track_type, track_index)
+### timeline(action, name, index, track_type, track_index, export_format, file_path)
 list, get_current, set_current, create, get_tracks, get_items, get_markers,
-add_marker, delete_markers, get_settings, duplicate
+add_marker, delete_markers, get_settings, duplicate,
+add_track, delete_track, export, insert_title, insert_generator, delete_clips
+
+### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color)
+get_current, get_properties, set_property, get_info, set_clip_color,
+clear_clip_color, set_enabled, get_source_info
 
 ### media_pool(action, folder_name, file_paths, timeline_name)
 list_folders, get_current_folder, set_current_folder, create_folder, delete_folder,
-list_clips, get_clip_info, import_media, create_timeline_from_clips, get_root_folder, selected_clips
+list_clips, get_clip_info, import_media, create_timeline_from_clips, get_root_folder,
+selected_clips, append_to_timeline
 
 ### color(action, node_index, lut_path, item_index)
 get_current_item, get_node_graph, get_nodes, get_lut, set_lut,
@@ -79,6 +85,7 @@ get_audio_tracks, get_audio_items
 - [x] Phase 2: Kern-Tools (v0.2.0)
 - [x] Phase 3: Erweiterte Tools (v0.3.0)
 - [x] Phase 4: Stabilisierung & Polish (v1.0.0)
+- [x] Phase 5: Editing-Capabilities (v1.1.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -92,4 +99,4 @@ get_audio_tracks, get_audio_items
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.0.0: 9 Tools, 60+ Actions, Reconnect-Retry, safe_tool Decorator, 29/29 Unit-Tests, 36/36 E2E-Tests
+2026-03-28 — v1.1.0: 10 Tools, 75+ Actions, Clip-Editing (SetProperty, AppendToTimeline, Export), timeline_item Tool
