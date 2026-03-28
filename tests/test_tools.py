@@ -421,3 +421,39 @@ class TestColorVersionsWithResolve:
         result = self.color(action="delete_version")
         assert result["success"] is False
         assert "version_name" in result["error"]
+
+
+class TestColorMagicMaskWithResolve:
+    """Magic mask and LUT export tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import color
+        self.color = color
+
+    def test_create_magic_mask_missing_mode(self):
+        """create_magic_mask ohne lut_path (mode) gibt Fehler zurück."""
+        result = self.color(action="create_magic_mask")
+        assert result["success"] is False
+        assert "mode" in result["error"].lower() or "lut_path" in result["error"]
+
+    def test_create_magic_mask_invalid_mode(self):
+        """create_magic_mask mit ungültigem Mode gibt Fehler zurück."""
+        result = self.color(action="create_magic_mask", lut_path="X")
+        assert result["success"] is False
+        assert "F" in result["error"] or "mode" in result["error"].lower()
+
+    def test_export_lut_missing_path(self):
+        """export_lut ohne lut_path gibt Fehler zurück."""
+        result = self.color(action="export_lut", node_index=0)
+        assert result["success"] is False
+        assert "lut_path" in result["error"]
+
+    def test_export_lut_missing_node_index(self):
+        """export_lut ohne node_index gibt Fehler zurück."""
+        result = self.color(action="export_lut", lut_path="/tmp/test.cube")
+        assert result["success"] is False
+        assert "node_index" in result["error"]

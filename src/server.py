@@ -1357,10 +1357,49 @@ def color(
         result = item.DeleteVersionByName(version_name, vt)
         return _ok(deleted=bool(result), version_name=version_name)
 
+    elif action == "create_magic_mask":
+        if not lut_path:
+            return _err("'lut_path' is required as mode: 'F' (Forward), 'B' (Backward), 'BI' (Bidirectional)")
+        if lut_path not in ("F", "B", "BI"):
+            return _err(f"Invalid mode '{lut_path}'. Valid: F, B, BI")
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        result = item.CreateMagicMask(lut_path)
+        return _ok(created=bool(result), mode=lut_path)
+
+    elif action == "regenerate_magic_mask":
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        result = item.RegenerateMagicMask() if hasattr(item, "RegenerateMagicMask") else False
+        return _ok(regenerated=bool(result))
+
+    elif action == "export_lut":
+        if node_index is None:
+            return _err("'node_index' is required (export type: 0=.cube, 1=.3dl)")
+        if not lut_path:
+            return _err("'lut_path' is required (output file path)")
+        if node_index not in (0, 1):
+            return _err(f"Invalid node_index '{node_index}' as export type. Valid: 0 (.cube), 1 (.3dl)")
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        result = item.ExportLUT(node_index, lut_path)
+        return _ok(exported=bool(result), path=lut_path)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current_item, get_node_graph, get_nodes, "
-            "get_lut, set_lut, set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes"
+            "get_lut, set_lut, set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes, "
+            "list_versions, get_version, add_version, load_version, delete_version, "
+            "create_magic_mask, regenerate_magic_mask, export_lut"
         )
 
 
