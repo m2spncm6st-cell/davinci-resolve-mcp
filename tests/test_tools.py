@@ -242,3 +242,10 @@ class TestMarkerEditingWithResolve:
         result = self.timeline(action="delete_between_markers")
         assert result["success"] is False
         assert "marker_a_frame" in result["error"]
+
+    def test_rename_clips_from_markers_returns_summary(self):
+        """rename_clips_from_markers gibt Anzahl umbenannter Clips zurück."""
+        result = self.timeline(action="rename_clips_from_markers")
+        assert result["success"] is True
+        assert "renamed" in result
+        assert isinstance(result["renamed"], int)

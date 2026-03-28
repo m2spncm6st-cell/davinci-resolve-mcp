@@ -235,6 +235,7 @@ def timeline(
     - "split_at_markers": Split clips at all marker positions. Optional: name (marker color filter)
     - "delete_between_markers": Delete all clips fully within two frame positions.
       Requires: track_index (marker_a_frame), index (marker_b_frame)
+    - "rename_clips_from_markers": Rename clips after nearest overlapping marker. Optional: name (color filter)
 
     Args:
         action: The action to perform
@@ -555,12 +556,46 @@ def timeline(
         result_del = tl.DeleteClips(clips_to_delete)
         return _ok(deleted=len(clips_to_delete), from_frame=marker_a, to_frame=marker_b, result=result_del)
 
+    elif action == "rename_clips_from_markers":
+        if err:
+            return err
+        markers = tl.GetMarkers()
+        if not markers:
+            return _ok(renamed=0, message="No markers found")
+        color_filter = name  # name-Parameter als optionaler Farbfilter
+        video_count = tl.GetTrackCount("video")
+        renamed = 0
+        for track_i in range(1, video_count + 1):
+            items = tl.GetItemListInTrack("video", track_i)
+            if not items:
+                continue
+            for item in items:
+                clip_start = item.GetStart()
+                clip_end = item.GetEnd()
+                best_frame = None
+                best_dist = None
+                best_marker = None
+                for frame, marker_data in markers.items():
+                    if color_filter and marker_data.get("color") != color_filter:
+                        continue
+                    if clip_start <= frame < clip_end:
+                        dist = abs(frame - clip_start)
+                        if best_dist is None or dist < best_dist:
+                            best_dist = dist
+                            best_frame = frame
+                            best_marker = marker_data
+                if best_frame is not None and best_marker and best_marker.get("name"):
+                    item.SetClipProperty("Clip Name", best_marker["name"])
+                    renamed += 1
+        return _ok(renamed=renamed)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
-            "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips, "
-            "get_marker_clips, split_at_markers, delete_between_markers"
+            "duplicate, add_track, delete_track, export, insert_title, insert_generator, "
+            "delete_clips, get_marker_clips, split_at_markers, delete_between_markers, "
+            "rename_clips_from_markers"
         )
 
 
