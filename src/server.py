@@ -1755,6 +1755,8 @@ def fairlight(
     muted: bool | None = None,
     pan: float | None = None,
     duration: int | None = None,
+    enabled: bool | None = None,
+    amount: int | None = None,
 ) -> dict:
     """Audio/Fairlight tools for DaVinci Resolve.
 
@@ -1767,6 +1769,9 @@ def fairlight(
     - "set_pan": Set clip pan. Requires: track_index, item_index, pan (-1.0 to 1.0)
     - "fade_in": Set fade-in on clip. Requires: track_index, item_index, duration (frames)
     - "fade_out": Set fade-out on clip. Requires: track_index, item_index, duration (frames)
+    - "get_voice_isolation": Get voice isolation state. Requires: track_index, item_index (1-based)
+    - "set_voice_isolation": Set voice isolation. Requires: track_index, item_index (1-based), enabled (bool). Optional: amount (0-100)
+    - "get_audio_mapping": Get source audio channel mapping. Requires: track_index, item_index (1-based)
 
     Args:
         action: The action to perform
@@ -1776,6 +1781,8 @@ def fairlight(
         muted: True to mute, False to unmute
         pan: Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right)
         duration: Fade duration in frames
+        enabled: Enable/disable voice isolation (for set_voice_isolation)
+        amount: Voice isolation amount 0-100 (for set_voice_isolation)
     """
     proj, tl, err = resolve.get_timeline()
     if err:
@@ -1905,10 +1912,57 @@ def fairlight(
         result = item.SetProperty("FadeOutDuration", duration)
         return _ok(track_index=track_index, item_index=item_index, duration=duration, set=result)
 
+    elif action == "get_voice_isolation":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        state = item.GetVoiceIsolationState() if hasattr(item, "GetVoiceIsolationState") else None
+        return _ok(track_index=track_index, item_index=item_index, voice_isolation=_ser(state))
+
+    elif action == "set_voice_isolation":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        if enabled is None:
+            return _err("'enabled' is required (true/false)")
+        if amount is not None and (amount < 0 or amount > 100):
+            return _err("'amount' must be between 0 and 100")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        state = {"enabled": enabled}
+        if amount is not None:
+            state["amount"] = amount
+        result = item.SetVoiceIsolationState(state) if hasattr(item, "SetVoiceIsolationState") else False
+        return _ok(track_index=track_index, item_index=item_index, set=bool(result), **state)
+
+    elif action == "get_audio_mapping":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        mapping = item.GetSourceAudioChannelMapping() if hasattr(item, "GetSourceAudioChannelMapping") else None
+        return _ok(track_index=track_index, item_index=item_index, mapping=_ser(mapping))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, "
-            "get_volume, set_volume, set_mute, set_pan, fade_in, fade_out"
+            "get_volume, set_volume, set_mute, set_pan, fade_in, fade_out, "
+            "get_voice_isolation, set_voice_isolation, get_audio_mapping"
         )
 
 

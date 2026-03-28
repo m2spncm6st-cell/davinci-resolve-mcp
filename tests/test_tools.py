@@ -457,3 +457,42 @@ class TestColorMagicMaskWithResolve:
         result = self.color(action="export_lut", lut_path="/tmp/test.cube")
         assert result["success"] is False
         assert "node_index" in result["error"]
+
+
+class TestFairlightVoiceIsolationWithResolve:
+    """Voice isolation and audio mapping tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import fairlight
+        self.fairlight = fairlight
+
+    def test_get_voice_isolation_missing_params(self):
+        """get_voice_isolation ohne track_index gibt Fehler zurück."""
+        result = self.fairlight(action="get_voice_isolation")
+        assert result["success"] is False
+        assert "track_index" in result["error"]
+
+    def test_set_voice_isolation_missing_params(self):
+        """set_voice_isolation ohne track_index gibt Fehler zurück."""
+        result = self.fairlight(action="set_voice_isolation")
+        assert result["success"] is False
+        assert "track_index" in result["error"]
+
+    def test_set_voice_isolation_amount_out_of_range(self):
+        """set_voice_isolation mit amount > 100 gibt Fehler zurück."""
+        result = self.fairlight(
+            action="set_voice_isolation", track_index=1, item_index=1,
+            enabled=True, amount=150
+        )
+        assert result["success"] is False
+        assert "100" in result["error"]
+
+    def test_get_audio_mapping_missing_params(self):
+        """get_audio_mapping ohne track_index gibt Fehler zurück."""
+        result = self.fairlight(action="get_audio_mapping")
+        assert result["success"] is False
+        assert "track_index" in result["error"]
