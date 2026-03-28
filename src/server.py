@@ -1357,9 +1357,19 @@ def fairlight(
         result = item.SetVolume(volume)
         return _ok(track_index=track_index, item_index=item_index, volume=volume, set=result)
 
+    elif action == "set_mute":
+        if track_index is None:
+            return _err("'track_index' is required (1-based)")
+        if muted is None:
+            return _err("'muted' is required (true to mute, false to unmute)")
+        if not hasattr(tl, "SetTrackEnabled"):
+            return _err("SetTrackEnabled() not available in this Resolve version")
+        result = tl.SetTrackEnabled("audio", track_index, not muted)
+        return _ok(track_index=track_index, muted=muted, set=result)
+
     else:
         return _err(
-            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume, set_volume"
+            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume, set_volume, set_mute"
         )
 
 

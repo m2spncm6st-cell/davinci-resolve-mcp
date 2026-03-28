@@ -139,3 +139,9 @@ class TestFairlightWithResolve:
         result = self.fairlight(action="set_volume", track_index=1, item_index=1)
         assert result["success"] is False
         assert "volume" in result["error"]
+
+    def test_set_mute_missing_muted_param(self):
+        """set_mute ohne muted-Parameter gibt Fehler zurück."""
+        result = self.fairlight(action="set_mute", track_index=1)
+        assert result["success"] is False
+        assert "muted" in result["error"]
