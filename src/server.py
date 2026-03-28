@@ -1310,7 +1310,7 @@ def fairlight(
         return _ok(count=count, tracks=tracks)
 
     elif action == "get_audio_items":
-        if not track_index:
+        if track_index is None:
             return _err("'track_index' is required (1-based)")
         items = tl.GetItemListInTrack("audio", track_index)
         if items is None:
