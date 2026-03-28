@@ -26,10 +26,21 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - **FastMCP** (offizielles Python MCP SDK) als Server-Framework
 - **stdio-Transport** (lokal, kein Netzwerk)
 - **Compound-Tools** mit `action`-Parameter (spart Context Window)
+  - Pattern: `tool_name(action: str, params: Optional[Dict]) -> Dict`
+  - Intern if/elif-Routing auf Resolve-API-Methoden
+  - Docstring als Action-Katalog für LLM
 - **Lazy Connection**: Server startet sofort, verbindet erst beim ersten Tool-Call
 - **Reconnect-Logik**: Automatischer Health-Check + Reconnect
+  - Health-Check via `GetProductName()` als günstiger Ping
+  - 2s Check-Interval, Cache dazwischen
+- **Navigation-Helpers** (aus samuelgursky-Analyse):
+  - `_check()` → Verbindung + Projekt prüfen
+  - `_get_mp()` → MediaPool navigieren
+  - `_get_tl()` → aktive Timeline holen
+  - Tupel-Rückgabe: `(obj1, obj2, error_or_none)`
+- **Normalisierte Responses**: `_err(msg)` → `{"error": msg}`, `_ok(**kw)` → `{"success": True, ...}`
+- **Serialisierungs-Helper**: `_ser(obj)` für Resolve-Objekte → JSON
 - **Pydantic-Validierung** für alle Tool-Inputs
-- **Strukturierte JSON-Responses** (success/error)
 
 ## Phasenplan
 - [x] Phase 0: Setup & Umgebung
@@ -47,12 +58,19 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - Conventional Commits auf Deutsch: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
 - Git-Tags bei Meilensteinen (v0.1.0, v0.2.0, etc.)
 
+## Referenz-Repo Erkenntnisse (samuelgursky/davinci-resolve-mcp)
+- 27 Compound-Tools im Standard-Mode, 342 granulare Tools alternativ
+- Dreistufige Lazy-Connect: Cache → Single Connect → Auto-Launch + Poll (60s)
+- Gestufte Navigation-Helpers als Middleware (`_check`, `_get_mp`, `_get_tl`)
+- Sandbox-Path-Redirection für sichere Dateipfade
+- Kein Health-Check mit Interval — einmal verbunden, dauerhaft gecacht
+
 ## Offene TODOs
-- [ ] Phase 1: server.py + resolve_connection.py fertig implementieren
-- [ ] MCP in Claude Code registrieren und testen
-- [ ] Referenz-Repos analysieren (samuelgursky, apvlv)
-- [ ] API-Dokumentation in docs/resolve_api_reference.md vervollständigen
+- [ ] Phase 1: resolve_status Tool testen mit laufendem Resolve
 - [ ] Dependencies installieren (pip install -r requirements.txt)
+- [ ] MCP in Claude Code registrieren
+- [ ] Navigation-Helpers implementieren (_check, _get_mp, _get_tl)
+- [ ] Compound-Tool Pattern auf project-Tool anwenden
 
 ## Letzte Änderung
-2026-03-28 — Phase 0 abgeschlossen: Projektstruktur, pyenv, Python 3.12
+2026-03-28 — Phase 0 komplett: Struktur, pyenv 3.12, API-Doku, Referenz-Analyse
