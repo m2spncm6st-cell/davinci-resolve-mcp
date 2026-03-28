@@ -231,10 +231,11 @@ def timeline(
     - "insert_title": Insert a title at playhead. Requires: name (title template name)
     - "insert_generator": Insert a generator at playhead. Requires: name (generator name)
     - "delete_clips": Delete all clips on a track. Requires: track_type, track_index
+    - "get_marker_clips": Find clips overlapping markers. Optional: name (marker color filter)
 
     Args:
         action: The action to perform
-        name: Timeline/title/generator name, or marker color
+        name: Timeline/title/generator name, or marker color (for get_marker_clips), or marker color to delete
         index: Timeline index, 1-based (for set_current)
         track_type: Track type: video, audio, subtitle
         track_index: Track index, 1-based; or frame number (for add_marker)
@@ -450,13 +451,15 @@ def timeline(
         color_filter = name  # name-Parameter als optionaler Farbfilter
         matched = []
         video_count = tl.GetTrackCount("video")
+        # Collect items per track once (avoid N×M API calls)
+        track_items = {}
+        for track_i in range(1, video_count + 1):
+            items = tl.GetItemListInTrack("video", track_i)
+            track_items[track_i] = list(items) if items else []
         for frame, marker_data in markers.items():
             if color_filter and marker_data.get("color") != color_filter:
                 continue
-            for track_i in range(1, video_count + 1):
-                items = tl.GetItemListInTrack("video", track_i)
-                if not items:
-                    continue
+            for track_i, items in track_items.items():
                 for item in items:
                     start = item.GetStart()
                     end = item.GetEnd()
