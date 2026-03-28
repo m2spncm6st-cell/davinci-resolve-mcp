@@ -236,6 +236,8 @@ def timeline(
     - "delete_between_markers": Delete all clips fully within two frame positions.
       Requires: track_index (marker_a_frame), index (marker_b_frame)
     - "rename_clips_from_markers": Rename clips after nearest overlapping marker. Optional: name (color filter)
+    - "get_timecode": Get current playhead position as timecode
+    - "set_timecode": Set playhead to timecode. Requires: name (timecode string "HH:MM:SS:FF")
 
     Args:
         action: The action to perform
@@ -589,13 +591,28 @@ def timeline(
                     renamed += 1
         return _ok(renamed=renamed)
 
+    elif action == "get_timecode":
+        tc = tl.GetCurrentTimecode()
+        return _ok(timecode=tc)
+
+    elif action == "set_timecode":
+        if not name:
+            return _err("'name' is required — timecode string in format 'HH:MM:SS:FF'")
+        import re
+        if not re.match(r"^\d{2}:\d{2}:\d{2}:\d{2}$", name):
+            return _err(f"Invalid timecode format '{name}'. Expected 'HH:MM:SS:FF'")
+        result = tl.SetCurrentTimecode(name)
+        if not result:
+            return _err(f"Could not set timecode to '{name}'")
+        return _ok(timecode=name)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
             "duplicate, add_track, delete_track, export, insert_title, insert_generator, "
             "delete_clips, get_marker_clips, split_at_markers, delete_between_markers, "
-            "rename_clips_from_markers"
+            "rename_clips_from_markers, get_timecode, set_timecode"
         )
 
 

@@ -249,3 +249,34 @@ class TestMarkerEditingWithResolve:
         assert result["success"] is True
         assert "renamed" in result
         assert isinstance(result["renamed"], int)
+
+
+class TestTimelinePlayheadWithResolve:
+    """Playhead control tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import timeline
+        self.timeline = timeline
+
+    def test_get_timecode_returns_timecode(self):
+        """get_timecode gibt einen Timecode-String zurück."""
+        result = self.timeline(action="get_timecode")
+        assert result["success"] is True
+        assert "timecode" in result
+        assert ":" in result["timecode"]
+
+    def test_set_timecode_missing_name(self):
+        """set_timecode ohne name gibt Fehler zurück."""
+        result = self.timeline(action="set_timecode")
+        assert result["success"] is False
+        assert "timecode" in result["error"].lower()
+
+    def test_set_timecode_invalid_format(self):
+        """set_timecode mit ungültigem Format gibt Fehler zurück."""
+        result = self.timeline(action="set_timecode", name="invalid")
+        assert result["success"] is False
+        assert "format" in result["error"].lower()
