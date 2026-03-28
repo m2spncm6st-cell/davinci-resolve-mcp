@@ -482,36 +482,41 @@ def timeline(
         markers = tl.GetMarkers()
         if not markers:
             return _ok(splits_attempted=0, splits_succeeded=0, splits_failed=0, message="No markers found")
-        color_filter = name
+        color_filter = name  # name-Parameter als optionaler Farbfilter
         attempted = 0
         succeeded = 0
         failed = 0
         errors = []
         video_count = tl.GetTrackCount("video")
+        # Fix I-3: SplitClip-Verfügbarkeit einmalig prüfen
+        if not hasattr(tl, "SplitClip"):
+            return _err("SplitClip() not available in this Resolve version. Requires Resolve 18+")
         for frame, marker_data in sorted(markers.items()):
             if color_filter and marker_data.get("color") != color_filter:
                 continue
-            attempted += 1
             split_ok = False
+            clip_found = False
             for track_i in range(1, video_count + 1):
                 items = tl.GetItemListInTrack("video", track_i)
                 if not items:
                     continue
                 for item in items:
-                    if item.GetStart() < frame < item.GetEnd():
+                    # Fix M-1: Overlap-Bedingung vereinheitlichen (konsistent mit get_marker_clips)
+                    if item.GetStart() <= frame < item.GetEnd():
+                        clip_found = True
                         try:
-                            if hasattr(tl, "SplitClip"):
-                                result_split = tl.SplitClip(item, frame)
-                                if result_split:
-                                    split_ok = True
-                            else:
-                                errors.append(f"Frame {frame}: SplitClip() not available")
+                            result_split = tl.SplitClip(item, frame)
+                            if result_split:
+                                split_ok = True
                         except Exception as e:
                             errors.append(f"Frame {frame}: {e}")
-            if split_ok:
-                succeeded += 1
-            else:
-                failed += 1
+            # Fix I-2: attempted nur erhöhen wenn tatsächlich ein Clip gefunden wurde
+            if clip_found:
+                attempted += 1
+                if split_ok:
+                    succeeded += 1
+                else:
+                    failed += 1
         return _ok(
             splits_attempted=attempted,
             splits_succeeded=succeeded,
