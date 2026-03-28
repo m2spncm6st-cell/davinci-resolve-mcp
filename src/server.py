@@ -1258,6 +1258,89 @@ def fusion(
         )
 
 
+# ── transition ──────────────────────────────────────────────────────
+
+TRANSITION_TYPES = ["Cut", "Dissolve", "DipToColor", "Wipe"]
+
+
+@mcp.tool()
+@safe_tool
+def transition(
+    action: str,
+    track_type: str | None = None,
+    track_index: int | None = None,
+    item_index: int | None = None,
+    transition_type: str | None = None,
+    duration: int | None = None,
+) -> dict:
+    """Add, remove, or inspect transitions between clips in DaVinci Resolve.
+
+    Actions:
+    - "list_types": List available transition types (Cut, Dissolve, DipToColor, Wipe)
+    - "get": Get the transition on a clip. Requires: track_type, track_index, item_index
+    - "add": Add a transition after a clip. Requires: track_type, track_index, item_index,
+             transition_type, duration (frames). Applies between clip[item_index] and clip[item_index+1].
+    - "remove": Remove transition from a clip. Requires: track_type, track_index, item_index
+
+    Args:
+        action: The action to perform
+        track_type: Track type ("video" or "audio")
+        track_index: Track index, 1-based
+        item_index: Clip index within the track, 1-based
+        transition_type: One of: Cut, Dissolve, DipToColor, Wipe
+        duration: Transition duration in frames
+    """
+    if action == "list_types":
+        return _ok(types=TRANSITION_TYPES)
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    if not track_type or track_index is None or item_index is None:
+        return _err("'track_type', 'track_index', and 'item_index' are required (1-based)")
+
+    items = tl.GetItemListInTrack(track_type, track_index)
+    if items is None:
+        return _err(f"Could not get items from {track_type} track {track_index}")
+    items = list(items)
+    if item_index < 1 or item_index > len(items):
+        return _err(f"item_index {item_index} out of range (1–{len(items)})")
+    item = items[item_index - 1]
+
+    if action == "get":
+        if not hasattr(item, "GetTransition"):
+            return _err("GetTransition() not available in this Resolve version")
+        trans = item.GetTransition()
+        return _ok(track_type=track_type, track_index=track_index, item_index=item_index, transition=_ser(trans))
+
+    elif action == "add":
+        if not transition_type:
+            return _err(f"'transition_type' is required. Valid: {', '.join(TRANSITION_TYPES)}")
+        if transition_type not in TRANSITION_TYPES:
+            return _err(f"Unknown transition_type '{transition_type}'. Valid: {', '.join(TRANSITION_TYPES)}")
+        if duration is None:
+            return _err("'duration' is required (frames as int, e.g. 24 for 1 second at 24fps)")
+        if not hasattr(item, "AddTransition"):
+            return _err("AddTransition() not available in this Resolve version")
+        result = item.AddTransition(transition_type, duration)
+        return _ok(
+            track_type=track_type, track_index=track_index, item_index=item_index,
+            transition_type=transition_type, duration=duration, added=result
+        )
+
+    elif action == "remove":
+        if not hasattr(item, "DeleteTransition"):
+            return _err("DeleteTransition() not available in this Resolve version")
+        result = item.DeleteTransition()
+        return _ok(track_type=track_type, track_index=track_index, item_index=item_index, removed=result)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: list_types, get, add, remove"
+        )
+
+
 # ── fairlight ───────────────────────────────────────────────────────
 
 @mcp.tool()

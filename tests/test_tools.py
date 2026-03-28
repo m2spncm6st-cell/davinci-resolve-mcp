@@ -163,3 +163,23 @@ class TestFairlightWithResolve:
         result = self.fairlight(action="fade_out", track_index=1, item_index=1)
         assert result["success"] is False
         assert "duration" in result["error"]
+
+
+class TestTransitionWithResolve:
+    """Transition tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import transition
+        self.transition = transition
+
+    def test_list_types_returns_known_types(self):
+        """list_types gibt eine Liste bekannter Transition-Typen zurück."""
+        result = self.transition(action="list_types")
+        assert result["success"] is True
+        assert "types" in result
+        assert "Dissolve" in result["types"]
+        assert "Cut" in result["types"]
