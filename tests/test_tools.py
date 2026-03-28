@@ -378,3 +378,46 @@ class TestTimelineItemCacheWithResolve:
         result = self.timeline_item(action="stabilize", track_type="video", track_index=1, item_index=0)
         assert result["success"] is True
         assert "stabilized" in result
+
+
+class TestColorVersionsWithResolve:
+    """Color version tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import color
+        self.color = color
+
+    def test_list_versions_returns_list(self):
+        """list_versions gibt versions-Liste zurück."""
+        result = self.color(action="list_versions")
+        assert result["success"] is True
+        assert "versions" in result
+        assert isinstance(result["versions"], list)
+
+    def test_get_version_returns_info(self):
+        """get_version gibt version-Info zurück."""
+        result = self.color(action="get_version")
+        assert result["success"] is True
+        assert "version" in result
+
+    def test_add_version_missing_name(self):
+        """add_version ohne version_name gibt Fehler zurück."""
+        result = self.color(action="add_version")
+        assert result["success"] is False
+        assert "version_name" in result["error"]
+
+    def test_load_version_missing_name(self):
+        """load_version ohne version_name gibt Fehler zurück."""
+        result = self.color(action="load_version")
+        assert result["success"] is False
+        assert "version_name" in result["error"]
+
+    def test_delete_version_missing_name(self):
+        """delete_version ohne version_name gibt Fehler zurück."""
+        result = self.color(action="delete_version")
+        assert result["success"] is False
+        assert "version_name" in result["error"]

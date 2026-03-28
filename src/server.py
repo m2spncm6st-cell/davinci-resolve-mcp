@@ -1144,6 +1144,8 @@ def color(
     node_index: int | None = None,
     lut_path: str | None = None,
     item_index: int | None = None,
+    version_name: str | None = None,
+    version_type: int | None = None,
 ) -> dict:
     """Color grading tools for DaVinci Resolve.
 
@@ -1159,12 +1161,22 @@ def color(
     - "reset_grades": Reset all grades on the current item
     - "get_color_groups": List all color groups in the project
     - "get_timeline_nodes": Get the timeline-level node graph
+    - "list_versions": List color versions. Optional: version_type (0=local, 1=remote, default 0)
+    - "get_version": Get current color version
+    - "add_version": Create a color version. Requires: version_name. Optional: version_type (0=local, 1=remote, default 0)
+    - "load_version": Switch to a version. Requires: version_name. Optional: version_type (default 0)
+    - "delete_version": Delete a version. Requires: version_name. Optional: version_type (default 0)
+    - "create_magic_mask": Create magic mask. Requires: lut_path (mode: "F"=Forward, "B"=Backward, "BI"=Bidirectional)
+    - "regenerate_magic_mask": Regenerate existing magic mask
+    - "export_lut": Export LUT from clip. Requires: node_index (0=.cube, 1=.3dl), lut_path (output file path)
 
     Args:
         action: The action to perform
         node_index: Node index, 1-based (for get_lut, set_lut, set_node_enabled)
         lut_path: Path to LUT file (for set_lut), or "true"/"false" (for set_node_enabled)
         item_index: Specific timeline item index on video track 1 (for get_node_graph)
+        version_name: Version name (for add/load/delete_version)
+        version_type: Version type: 0=local, 1=remote (default 0)
     """
     proj, tl, err = resolve.get_timeline()
 
@@ -1289,6 +1301,61 @@ def color(
         for i in range(1, num_nodes + 1):
             nodes.append({"index": i, "label": graph.GetNodeLabel(i)})
         return _ok(num_nodes=num_nodes, nodes=nodes)
+
+    elif action == "list_versions":
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        vt = version_type if version_type is not None else 0
+        versions = item.GetVersionNameList(vt) if hasattr(item, "GetVersionNameList") else []
+        return _ok(versions=versions or [], version_type=vt)
+
+    elif action == "get_version":
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        version = item.GetCurrentVersion() if hasattr(item, "GetCurrentVersion") else None
+        return _ok(version=_ser(version))
+
+    elif action == "add_version":
+        if not version_name:
+            return _err("'version_name' is required")
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        vt = version_type if version_type is not None else 0
+        result = item.AddVersion(version_name, vt)
+        return _ok(added=bool(result), version_name=version_name, version_type=vt)
+
+    elif action == "load_version":
+        if not version_name:
+            return _err("'version_name' is required")
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        vt = version_type if version_type is not None else 0
+        result = item.LoadVersionByName(version_name, vt)
+        return _ok(loaded=bool(result), version_name=version_name)
+
+    elif action == "delete_version":
+        if not version_name:
+            return _err("'version_name' is required")
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        vt = version_type if version_type is not None else 0
+        result = item.DeleteVersionByName(version_name, vt)
+        return _ok(deleted=bool(result), version_name=version_name)
 
     else:
         return _err(
