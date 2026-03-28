@@ -133,3 +133,9 @@ class TestFairlightWithResolve:
         result = self.fairlight(action="get_volume", track_index=1)
         assert result["success"] is False
         assert "item_index" in result["error"]
+
+    def test_set_volume_missing_volume_param(self):
+        """set_volume ohne volume-Parameter gibt Fehler zurück."""
+        result = self.fairlight(action="set_volume", track_index=1, item_index=1)
+        assert result["success"] is False
+        assert "volume" in result["error"]

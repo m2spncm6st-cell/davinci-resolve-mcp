@@ -1340,9 +1340,26 @@ def fairlight(
         vol = item.GetVolume()
         return _ok(track_index=track_index, item_index=item_index, volume=vol)
 
+    elif action == "set_volume":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        if volume is None:
+            return _err("'volume' is required (dB as float, e.g. -6.0)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        if not hasattr(item, "SetVolume"):
+            return _err("SetVolume() not available in this Resolve version")
+        result = item.SetVolume(volume)
+        return _ok(track_index=track_index, item_index=item_index, volume=volume, set=result)
+
     else:
         return _err(
-            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume"
+            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume, set_volume"
         )
 
 
