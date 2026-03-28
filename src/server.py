@@ -441,11 +441,43 @@ def timeline(
         result = tl.DeleteClips(items)
         return _ok(deleted=len(items), result=result)
 
+    elif action == "get_marker_clips":
+        if err:
+            return err
+        markers = tl.GetMarkers()
+        if not markers:
+            return _ok(clips=[], marker_count=0)
+        color_filter = name  # name-Parameter als optionaler Farbfilter
+        matched = []
+        video_count = tl.GetTrackCount("video")
+        for frame, marker_data in markers.items():
+            if color_filter and marker_data.get("color") != color_filter:
+                continue
+            for track_i in range(1, video_count + 1):
+                items = tl.GetItemListInTrack("video", track_i)
+                if not items:
+                    continue
+                for item in items:
+                    start = item.GetStart()
+                    end = item.GetEnd()
+                    if start <= frame < end:
+                        matched.append({
+                            "marker_frame": frame,
+                            "marker_name": marker_data.get("name", ""),
+                            "marker_color": marker_data.get("color", ""),
+                            "clip_name": item.GetName(),
+                            "clip_start": start,
+                            "clip_end": end,
+                            "track_index": track_i,
+                        })
+        return _ok(clips=matched, marker_count=len(markers))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
-            "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips"
+            "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips, "
+            "get_marker_clips"
         )
 
 

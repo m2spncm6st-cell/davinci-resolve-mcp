@@ -209,3 +209,22 @@ class TestTransitionWithResolve:
         )
         assert result["success"] is False
         assert "duration" in result["error"]
+
+
+class TestMarkerEditingWithResolve:
+    """Marker-based editing tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import timeline
+        self.timeline = timeline
+
+    def test_get_marker_clips_returns_list(self):
+        """get_marker_clips gibt success=True und eine clips-Liste zurück."""
+        result = self.timeline(action="get_marker_clips")
+        assert result["success"] is True
+        assert "clips" in result
+        assert isinstance(result["clips"], list)
