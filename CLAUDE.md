@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.2.0 — Audio/Fairlight erweitert
+## Status: v1.3.0 — Transitions hinzugefügt
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (10 Tools, 81+ Actions)
+## Implementierte Tools (11 Tools, 85+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -80,6 +80,9 @@ rename_comp, insert_fusion_clip
 get_audio_tracks, get_audio_items,
 get_volume, set_volume, set_mute, set_pan, fade_in, fade_out
 
+### transition(action, track_type, track_index, item_index, transition_type, duration)
+list_types, get, add, remove
+
 ## Phasenplan
 - [x] Phase 0: Setup & Umgebung
 - [x] Phase 1: Minimaler Server (v0.1.0)
@@ -88,6 +91,7 @@ get_volume, set_volume, set_mute, set_pan, fade_in, fade_out
 - [x] Phase 4: Stabilisierung & Polish (v1.0.0)
 - [x] Phase 5: Editing-Capabilities (v1.1.0)
 - [x] Phase 6: Audio/Fairlight (v1.2.0)
+- [x] Phase 7: Transitions (v1.3.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -101,4 +105,4 @@ get_volume, set_volume, set_mute, set_pan, fade_in, fade_out
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.2.0: fairlight erweitert (get_volume, set_volume, set_mute, set_pan, fade_in, fade_out)
+2026-03-28 — v1.3.0: transition Tool (list_types, get, add, remove)
