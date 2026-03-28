@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.3.0 — Transitions hinzugefügt
+## Status: v1.4.0 — Marker-basiertes Editing hinzugefügt
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (11 Tools, 85+ Actions)
+## Implementierte Tools (11 Tools, 89+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -52,7 +52,8 @@ list, get_current, open, save, create, close
 ### timeline(action, name, index, track_type, track_index, export_format, file_path)
 list, get_current, set_current, create, get_tracks, get_items, get_markers,
 add_marker, delete_markers, get_settings, duplicate,
-add_track, delete_track, export, insert_title, insert_generator, delete_clips
+add_track, delete_track, export, insert_title, insert_generator, delete_clips,
+get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers
 
 ### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color)
 get_current, get_properties, set_property, get_info, set_clip_color,
@@ -92,6 +93,7 @@ list_types, get, add, remove
 - [x] Phase 5: Editing-Capabilities (v1.1.0)
 - [x] Phase 6: Audio/Fairlight (v1.2.0)
 - [x] Phase 7: Transitions (v1.3.0)
+- [x] Phase 8: Marker-basiertes Editing (v1.4.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -105,4 +107,4 @@ list_types, get, add, remove
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.3.0: transition Tool (list_types, get, add, remove)
+2026-03-28 — v1.4.0: Marker-basiertes Editing (get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers)
