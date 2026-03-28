@@ -183,3 +183,29 @@ class TestTransitionWithResolve:
         assert "types" in result
         assert "Dissolve" in result["types"]
         assert "Cut" in result["types"]
+
+    def test_add_missing_transition_type(self):
+        """add ohne transition_type gibt Fehler zurück."""
+        result = self.transition(
+            action="add", track_type="video", track_index=1, item_index=1, duration=24
+        )
+        assert result["success"] is False
+        assert "transition_type" in result["error"]
+
+    def test_add_invalid_transition_type(self):
+        """add mit unbekanntem transition_type gibt Fehler zurück."""
+        result = self.transition(
+            action="add", track_type="video", track_index=1, item_index=1,
+            transition_type="UnknownFX", duration=24
+        )
+        assert result["success"] is False
+        assert "UnknownFX" in result["error"]
+
+    def test_add_missing_duration(self):
+        """add ohne duration gibt Fehler zurück."""
+        result = self.transition(
+            action="add", track_type="video", track_index=1, item_index=1,
+            transition_type="Dissolve"
+        )
+        assert result["success"] is False
+        assert "duration" in result["error"]
