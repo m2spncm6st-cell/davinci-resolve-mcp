@@ -6,7 +6,8 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
 ## Aktuelle Phase
 **Phase 0: Setup & Umgebung** — abgeschlossen
-**Phase 1: Minimaler Server** — als nächstes
+**Phase 1: Minimaler Server** — abgeschlossen (v0.1.0)
+**Phase 2: Kern-Tools** — als nächstes
 
 ## Umgebung
 - macOS 26.4 (Tahoe), Apple Silicon
@@ -44,8 +45,8 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
 ## Phasenplan
 - [x] Phase 0: Setup & Umgebung
-- [ ] Phase 1: Minimaler Server (resolve_status Tool, MCP-Registrierung)
-- [ ] Phase 2: Kern-Tools (project, timeline, media_pool)
+- [x] Phase 1: Minimaler Server (v0.1.0) — resolve_status, resolve_control, project Tool
+- [ ] Phase 2: Kern-Tools (timeline, media_pool erweitern)
 - [ ] Phase 3: Erweiterte Tools (color, fusion, deliver)
 - [ ] Phase 4: Stabilisierung & Polish
 
@@ -53,6 +54,7 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - Python 3.13+ hat ABI-Inkompatibilitäten mit fusionscript.so → pyenv 3.12 verwenden
 - Resolve muss laufen bevor Tools aufgerufen werden
 - "External scripting using: Local" muss in Resolve-Einstellungen aktiv sein
+- FastMCP v1.26: `description` Parameter heißt jetzt `instructions`
 
 ## Git-Workflow
 - Conventional Commits auf Deutsch: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
@@ -65,12 +67,16 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - Sandbox-Path-Redirection für sichere Dateipfade
 - Kein Health-Check mit Interval — einmal verbunden, dauerhaft gecacht
 
+## Implementierte Tools (Phase 1)
+- `resolve_status` — Verbindungsstatus, Version, Projekt, Page
+- `resolve_control` — App-Level: status, get_page, set_page, get_version
+- `project` — Projekt-CRUD: list, get_current, open, save, create, close
+
 ## Offene TODOs
-- [ ] Phase 1: resolve_status Tool testen mit laufendem Resolve
-- [ ] Dependencies installieren (pip install -r requirements.txt)
-- [ ] MCP in Claude Code registrieren
-- [ ] Navigation-Helpers implementieren (_check, _get_mp, _get_tl)
-- [ ] Compound-Tool Pattern auf project-Tool anwenden
+- [ ] Phase 2: timeline-Tool implementieren (list, create, get_current, set_current)
+- [ ] Phase 2: media_pool-Tool implementieren (list_folders, import_media, list_clips)
+- [ ] resolve_control.set_page fertig implementieren
+- [ ] MCP-Server in Claude Code tatsächlich nutzen (aus Projektordner starten)
 
 ## Letzte Änderung
-2026-03-28 — Phase 0 komplett: Struktur, pyenv 3.12, API-Doku, Referenz-Analyse
+2026-03-28 — Phase 1 abgeschlossen (v0.1.0): Server läuft, Resolve-Verbindung live getestet
