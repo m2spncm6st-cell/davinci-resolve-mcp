@@ -465,5 +465,474 @@ def media_pool(
         )
 
 
+# ── color ───────────────────────────────────────────────────────────
+
+@mcp.tool()
+def color(
+    action: str,
+    node_index: int | None = None,
+    lut_path: str | None = None,
+    item_index: int | None = None,
+) -> dict:
+    """Color grading tools for DaVinci Resolve.
+
+    Works on the current timeline or a specific timeline item.
+
+    Actions:
+    - "get_current_item": Get info about the current video item on the color page
+    - "get_node_graph": Get the node graph of the current item (or timeline). Optional: item_index
+    - "get_nodes": List all nodes and their labels in the current item's graph
+    - "get_lut": Get the LUT applied to a node. Requires: node_index (1-based)
+    - "set_lut": Apply a LUT to a node. Requires: node_index (1-based), lut_path
+    - "set_node_enabled": Enable/disable a node. Requires: node_index. Optional: lut_path ("true"/"false", default "true")
+    - "reset_grades": Reset all grades on the current item
+    - "get_color_groups": List all color groups in the project
+    - "get_timeline_nodes": Get the timeline-level node graph
+
+    Args:
+        action: The action to perform
+        node_index: Node index, 1-based (for get_lut, set_lut, set_node_enabled)
+        lut_path: Path to LUT file (for set_lut), or "true"/"false" (for set_node_enabled)
+        item_index: Specific timeline item index on video track 1 (for get_node_graph)
+    """
+    proj, tl, err = resolve.get_timeline()
+
+    if action == "get_current_item":
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item. Switch to the Color page and select a clip.")
+        return _ok(
+            name=item.GetName(),
+            start=item.GetStart(),
+            end=item.GetEnd(),
+            duration=item.GetDuration(),
+            enabled=item.GetClipEnabled() if hasattr(item, "GetClipEnabled") else None,
+            color=item.GetClipColor() if hasattr(item, "GetClipColor") else None,
+        )
+
+    elif action == "get_node_graph" or action == "get_nodes":
+        if err:
+            return err
+        # Get item to work on
+        if item_index is not None:
+            items = tl.GetItemListInTrack("video", 1)
+            if not items or item_index < 0 or item_index >= len(items):
+                return _err(f"No item at index {item_index}")
+            item = items[item_index]
+        else:
+            item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No video item available")
+
+        graph = item.GetNodeGraph()
+        if not graph:
+            return _err("Could not get node graph")
+
+        num_nodes = graph.GetNumNodes()
+        nodes = []
+        for i in range(1, num_nodes + 1):
+            node_info = {"index": i, "label": graph.GetNodeLabel(i)}
+            lut = graph.GetLUT(i)
+            if lut:
+                node_info["lut"] = lut
+            tools = graph.GetToolsInNode(i) if hasattr(graph, "GetToolsInNode") else None
+            if tools:
+                node_info["tools"] = _ser(tools)
+            nodes.append(node_info)
+        return _ok(item=item.GetName(), num_nodes=num_nodes, nodes=nodes)
+
+    elif action == "get_lut":
+        if err:
+            return err
+        if not node_index:
+            return _err("'node_index' is required (1-based)")
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        graph = item.GetNodeGraph()
+        if not graph:
+            return _err("Could not get node graph")
+        lut = graph.GetLUT(node_index)
+        return _ok(node_index=node_index, lut=lut if lut else None)
+
+    elif action == "set_lut":
+        if err:
+            return err
+        if not node_index or not lut_path:
+            return _err("'node_index' and 'lut_path' are required")
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        graph = item.GetNodeGraph()
+        if not graph:
+            return _err("Could not get node graph")
+        result = graph.SetLUT(node_index, lut_path)
+        return _ok(node_index=node_index, lut_path=lut_path, applied=result)
+
+    elif action == "set_node_enabled":
+        if err:
+            return err
+        if not node_index:
+            return _err("'node_index' is required (1-based)")
+        enabled = lut_path != "false" if lut_path else True
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        graph = item.GetNodeGraph()
+        if not graph:
+            return _err("Could not get node graph")
+        result = graph.SetNodeEnabled(node_index, enabled)
+        return _ok(node_index=node_index, enabled=enabled, result=result)
+
+    elif action == "reset_grades":
+        if err:
+            return err
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item")
+        graph = item.GetNodeGraph()
+        if not graph:
+            return _err("Could not get node graph")
+        result = graph.ResetAllGrades()
+        return _ok(reset=result)
+
+    elif action == "get_color_groups":
+        pm, proj2, err2 = resolve.check()
+        if err2:
+            return err2
+        groups = proj2.GetColorGroupsList()
+        if not groups:
+            return _ok(groups=[])
+        return _ok(groups=[{"name": g.GetName()} for g in groups])
+
+    elif action == "get_timeline_nodes":
+        if err:
+            return err
+        graph = tl.GetNodeGraph()
+        if not graph:
+            return _err("Could not get timeline node graph")
+        num_nodes = graph.GetNumNodes()
+        nodes = []
+        for i in range(1, num_nodes + 1):
+            nodes.append({"index": i, "label": graph.GetNodeLabel(i)})
+        return _ok(num_nodes=num_nodes, nodes=nodes)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: get_current_item, get_node_graph, get_nodes, "
+            "get_lut, set_lut, set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes"
+        )
+
+
+# ── deliver ─────────────────────────────────────────────────────────
+
+@mcp.tool()
+def deliver(
+    action: str,
+    preset_name: str | None = None,
+    target_dir: str | None = None,
+    file_name: str | None = None,
+    render_format: str | None = None,
+    render_codec: str | None = None,
+    job_id: str | None = None,
+) -> dict:
+    """Manage rendering and delivery in DaVinci Resolve.
+
+    Actions:
+    - "get_formats": List available render formats
+    - "get_codecs": List codecs for a format. Requires: render_format
+    - "get_presets": List available render presets
+    - "load_preset": Load a render preset. Requires: preset_name
+    - "get_current_format": Get current render format and codec
+    - "set_format": Set render format and codec. Requires: render_format, render_codec
+    - "set_render_settings": Configure render output. Optional: target_dir, file_name
+    - "add_job": Add current timeline to the render queue
+    - "list_jobs": List all render jobs
+    - "get_job_status": Get status of a render job. Requires: job_id
+    - "start_render": Start rendering all queued jobs (or specific job_id)
+    - "stop_render": Stop current render
+    - "is_rendering": Check if rendering is in progress
+    - "delete_all_jobs": Clear the render queue
+
+    Args:
+        action: The action to perform
+        preset_name: Render preset name
+        target_dir: Output directory path
+        file_name: Output file name (without extension)
+        render_format: Render format (e.g. "mp4", "mov")
+        render_codec: Render codec (e.g. "H.265", "H.264")
+        job_id: Render job ID
+    """
+    pm, proj, err = resolve.check()
+
+    if action == "get_formats":
+        if err:
+            return err
+        formats = proj.GetRenderFormats()
+        return _ok(formats=_ser(formats))
+
+    elif action == "get_codecs":
+        if err:
+            return err
+        if not render_format:
+            return _err("'render_format' is required")
+        codecs = proj.GetRenderCodecs(render_format)
+        return _ok(format=render_format, codecs=_ser(codecs))
+
+    elif action == "get_presets":
+        if err:
+            return err
+        presets = proj.GetPresetList()
+        return _ok(presets=_ser(presets))
+
+    elif action == "load_preset":
+        if err:
+            return err
+        if not preset_name:
+            return _err("'preset_name' is required")
+        result = proj.LoadRenderPreset(preset_name)
+        return _ok(preset=preset_name, loaded=result)
+
+    elif action == "get_current_format":
+        if err:
+            return err
+        fmt = proj.GetCurrentRenderFormatAndCodec()
+        return _ok(format_and_codec=_ser(fmt))
+
+    elif action == "set_format":
+        if err:
+            return err
+        if not render_format or not render_codec:
+            return _err("'render_format' and 'render_codec' are required")
+        result = proj.SetCurrentRenderFormatAndCodec(render_format, render_codec)
+        return _ok(format=render_format, codec=render_codec, set=result)
+
+    elif action == "set_render_settings":
+        if err:
+            return err
+        settings = {}
+        if target_dir:
+            settings["TargetDir"] = target_dir
+        if file_name:
+            settings["CustomName"] = file_name
+        if not settings:
+            return _err("Provide at least 'target_dir' or 'file_name'")
+        result = proj.SetRenderSettings(settings)
+        return _ok(settings=settings, applied=result)
+
+    elif action == "add_job":
+        if err:
+            return err
+        job = proj.AddRenderJob()
+        if not job:
+            return _err("Could not add render job. Check render settings and timeline.")
+        return _ok(job_id=job)
+
+    elif action == "list_jobs":
+        if err:
+            return err
+        jobs = proj.GetRenderJobList()
+        return _ok(jobs=_ser(jobs))
+
+    elif action == "get_job_status":
+        if err:
+            return err
+        if not job_id:
+            return _err("'job_id' is required")
+        status = proj.GetRenderJobStatus(job_id)
+        return _ok(job_id=job_id, status=_ser(status))
+
+    elif action == "start_render":
+        if err:
+            return err
+        if job_id:
+            result = proj.StartRendering(job_id)
+        else:
+            result = proj.StartRendering()
+        return _ok(started=result)
+
+    elif action == "stop_render":
+        if err:
+            return err
+        proj.StopRendering()
+        return _ok(stopped=True)
+
+    elif action == "is_rendering":
+        if err:
+            return err
+        return _ok(rendering=proj.IsRenderingInProgress())
+
+    elif action == "delete_all_jobs":
+        if err:
+            return err
+        result = proj.DeleteAllRenderJobs()
+        return _ok(deleted=result)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: get_formats, get_codecs, get_presets, load_preset, "
+            "get_current_format, set_format, set_render_settings, add_job, list_jobs, "
+            "get_job_status, start_render, stop_render, is_rendering, delete_all_jobs"
+        )
+
+
+# ── fusion ──────────────────────────────────────────────────────────
+
+@mcp.tool()
+def fusion(
+    action: str,
+    comp_name: str | None = None,
+    comp_index: int | None = None,
+    file_path: str | None = None,
+    new_name: str | None = None,
+) -> dict:
+    """Manage Fusion compositions on timeline items in DaVinci Resolve.
+
+    Works on the current video item in the timeline.
+
+    Actions:
+    - "list_comps": List Fusion compositions on the current item
+    - "get_comp": Get a specific composition. Optional: comp_name or comp_index (1-based)
+    - "add_comp": Add a new Fusion composition to the current item
+    - "import_comp": Import a Fusion composition from file. Requires: file_path
+    - "export_comp": Export a composition. Requires: file_path, comp_index (1-based)
+    - "delete_comp": Delete a composition by name. Requires: comp_name
+    - "rename_comp": Rename a composition. Requires: comp_name, new_name
+    - "insert_fusion_clip": Insert a Fusion clip into the timeline at the playhead
+
+    Args:
+        action: The action to perform
+        comp_name: Composition name (for get_comp, delete_comp, rename_comp)
+        comp_index: Composition index, 1-based (for get_comp, export_comp)
+        file_path: File path (for import_comp, export_comp)
+        new_name: New name (for rename_comp)
+    """
+    proj, tl, err = resolve.get_timeline()
+
+    if action == "insert_fusion_clip":
+        if err:
+            return err
+        item = tl.InsertFusionCompositionIntoTimeline()
+        if not item:
+            return _err("Could not insert Fusion composition into timeline")
+        return _ok(item=item.GetName())
+
+    # All other actions need the current video item
+    if err:
+        return err
+    item = tl.GetCurrentVideoItem()
+    if not item:
+        return _err("No current video item. Select a clip first.")
+
+    if action == "list_comps":
+        count = item.GetFusionCompCount()
+        names = item.GetFusionCompNameList()
+        return _ok(count=count, compositions=_ser(names))
+
+    elif action == "get_comp":
+        if comp_name:
+            comp = item.GetFusionCompByName(comp_name)
+        elif comp_index:
+            comp = item.GetFusionCompByIndex(comp_index)
+        else:
+            return _err("Provide 'comp_name' or 'comp_index'")
+        if not comp:
+            return _err("Composition not found")
+        return _ok(composition=str(comp))
+
+    elif action == "add_comp":
+        comp = item.AddFusionComp()
+        if not comp:
+            return _err("Could not add Fusion composition")
+        return _ok(added=True, count=item.GetFusionCompCount())
+
+    elif action == "import_comp":
+        if not file_path:
+            return _err("'file_path' is required")
+        comp = item.ImportFusionComp(file_path)
+        if not comp:
+            return _err(f"Could not import Fusion comp from '{file_path}'")
+        return _ok(imported=True)
+
+    elif action == "export_comp":
+        if not file_path or not comp_index:
+            return _err("'file_path' and 'comp_index' are required")
+        result = item.ExportFusionComp(file_path, comp_index)
+        return _ok(exported=result, path=file_path)
+
+    elif action == "delete_comp":
+        if not comp_name:
+            return _err("'comp_name' is required")
+        result = item.DeleteFusionCompByName(comp_name)
+        return _ok(deleted=result)
+
+    elif action == "rename_comp":
+        if not comp_name or not new_name:
+            return _err("'comp_name' and 'new_name' are required")
+        result = item.RenameFusionCompByName(comp_name, new_name)
+        return _ok(renamed=result, old_name=comp_name, new_name=new_name)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: list_comps, get_comp, add_comp, "
+            "import_comp, export_comp, delete_comp, rename_comp, insert_fusion_clip"
+        )
+
+
+# ── fairlight ───────────────────────────────────────────────────────
+
+@mcp.tool()
+def fairlight(action: str, track_index: int | None = None) -> dict:
+    """Audio/Fairlight tools for DaVinci Resolve.
+
+    Actions:
+    - "get_audio_tracks": List all audio tracks with details
+    - "get_audio_items": Get audio items in a track. Requires: track_index (1-based)
+
+    Args:
+        action: The action to perform
+        track_index: Audio track index, 1-based
+    """
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    if action == "get_audio_tracks":
+        count = tl.GetTrackCount("audio")
+        tracks = []
+        for i in range(1, count + 1):
+            track_info = {
+                "index": i,
+                "name": tl.GetTrackName("audio", i),
+                "enabled": tl.GetIsTrackEnabled("audio", i) if hasattr(tl, "GetIsTrackEnabled") else None,
+                "locked": tl.GetIsTrackLocked("audio", i) if hasattr(tl, "GetIsTrackLocked") else None,
+            }
+            tracks.append(track_info)
+        return _ok(count=count, tracks=tracks)
+
+    elif action == "get_audio_items":
+        if not track_index:
+            return _err("'track_index' is required (1-based)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        result = []
+        for item in items:
+            result.append({
+                "name": item.GetName(),
+                "start": item.GetStart(),
+                "end": item.GetEnd(),
+                "duration": item.GetDuration(),
+            })
+        return _ok(track_index=track_index, items=result)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items"
+        )
+
+
 if __name__ == "__main__":
     mcp.run()

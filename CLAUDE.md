@@ -8,7 +8,8 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 **Phase 0: Setup & Umgebung** — abgeschlossen
 **Phase 1: Minimaler Server** — abgeschlossen (v0.1.0)
 **Phase 2: Kern-Tools** — abgeschlossen (v0.2.0)
-**Phase 3: Erweiterte Tools** — als nächstes
+**Phase 3: Erweiterte Tools** — abgeschlossen (v0.3.0)
+**Phase 4: Stabilisierung & Polish** — als nächstes
 
 ## Umgebung
 - macOS 26.4 (Tahoe), Apple Silicon
@@ -48,7 +49,7 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - [x] Phase 0: Setup & Umgebung
 - [x] Phase 1: Minimaler Server (v0.1.0) — resolve_status, resolve_control, project Tool
 - [x] Phase 2: Kern-Tools (v0.2.0) — timeline, media_pool, set_page
-- [ ] Phase 3: Erweiterte Tools (color, fusion, deliver)
+- [x] Phase 3: Erweiterte Tools (v0.3.0) — color, fusion, deliver, fairlight
 - [ ] Phase 4: Stabilisierung & Polish
 
 ## Bekannte Probleme
@@ -68,18 +69,21 @@ Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 - Sandbox-Path-Redirection für sichere Dateipfade
 - Kein Health-Check mit Interval — einmal verbunden, dauerhaft gecacht
 
-## Implementierte Tools
+## Implementierte Tools (9 Tools, 50+ Actions)
 - `resolve_status()` — Verbindungsstatus, Version, Projekt, Page
 - `resolve_control(action, page)` — status, get_page, set_page, get_version
 - `project(action, name)` — list, get_current, open, save, create, close
-- `timeline(action, name, index, track_type, track_index)` — list, get_current, set_current, create, get_tracks, get_items, get_markers, duplicate
-- `media_pool(action, folder_name, file_paths, timeline_name)` — list_folders, get_current_folder, set_current_folder, create_folder, list_clips, import_media, create_timeline_from_clips, get_root_folder, selected_clips
+- `timeline(action, ...)` — list, get_current, set_current, create, get_tracks, get_items, get_markers, duplicate
+- `media_pool(action, ...)` — list_folders, get/set_current_folder, create_folder, list_clips, import_media, create_timeline_from_clips, get_root_folder, selected_clips
+- `color(action, ...)` — get_current_item, get_node_graph, get_nodes, get/set_lut, set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes
+- `deliver(action, ...)` — get_formats, get_codecs, get_presets, load_preset, get/set_current_format, set_render_settings, add/list/delete_jobs, get_job_status, start/stop_render, is_rendering
+- `fusion(action, ...)` — list_comps, get/add/import/export/delete/rename_comp, insert_fusion_clip
+- `fairlight(action, ...)` — get_audio_tracks, get_audio_items
 
 ## Offene TODOs
-- [ ] Phase 3: color-Tool (get_nodes, get_grades, apply_lut)
-- [ ] Phase 3: fusion-Tool (list_nodes, create_node, connect)
-- [ ] Phase 3: deliver-Tool (add_to_render_queue, start_render, get_status)
+- [ ] Phase 4: Edge-Cases behandeln (Reconnect nach Resolve-Neustart)
+- [ ] Phase 4: Alle Pages durchgehend E2E-testen
 - [ ] MCP-Server in Claude Code tatsächlich nutzen (aus Projektordner starten)
 
 ## Letzte Änderung
-2026-03-28 — Phase 2 abgeschlossen (v0.2.0): timeline + media_pool Tools, 21/21 Tests grün
+2026-03-28 — Phase 3 abgeschlossen (v0.3.0): 9 Tools, 46/46 Live-Tests, 29/29 Unit-Tests
