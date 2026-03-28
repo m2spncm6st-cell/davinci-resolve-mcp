@@ -239,9 +239,9 @@ def timeline(
     Args:
         action: The action to perform
         name: Timeline/title/generator name, or marker color (for get_marker_clips), or marker color to delete
-        index: Timeline index, 1-based (for set_current)
+        index: Timeline index, 1-based (for set_current); or marker_b_frame (for delete_between_markers)
         track_type: Track type: video, audio, subtitle
-        track_index: Track index, 1-based; or frame number (for add_marker)
+        track_index: Track index, 1-based; or frame number (for add_marker, delete_between_markers as marker_a_frame)
         export_format: Export format (for export action)
         file_path: File path (for export action)
     """
@@ -529,7 +529,7 @@ def timeline(
     elif action == "delete_between_markers":
         if err:
             return err
-        # marker_a_frame wird als track_index übergeben, marker_b_frame als index
+        # marker_a_frame passed as track_index, marker_b_frame as index
         marker_a = track_index
         marker_b = index
         if marker_a is None or marker_b is None:
