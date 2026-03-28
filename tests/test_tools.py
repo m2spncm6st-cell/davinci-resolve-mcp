@@ -115,3 +115,22 @@ class TestWithResolve:
             assert "timeline" in err["error"].lower()
         else:
             assert tl.GetName()
+
+
+class TestFairlightWithResolve:
+    """Audio/Fairlight tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import fairlight
+        self.fairlight = fairlight
+
+    def test_get_volume_missing_params(self):
+        """get_volume ohne item_index gibt Fehler zurück."""
+        result = self.fairlight(action="get_volume", track_index=1)
+        assert result["success"] is False
+        assert "item_index" in result["error"]

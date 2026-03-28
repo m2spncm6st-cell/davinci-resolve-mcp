@@ -1262,16 +1262,35 @@ def fusion(
 
 @mcp.tool()
 @safe_tool
-def fairlight(action: str, track_index: int | None = None) -> dict:
+def fairlight(
+    action: str,
+    track_index: int | None = None,
+    item_index: int | None = None,
+    volume: float | None = None,
+    muted: bool | None = None,
+    pan: float | None = None,
+    duration: int | None = None,
+) -> dict:
     """Audio/Fairlight tools for DaVinci Resolve.
 
     Actions:
     - "get_audio_tracks": List all audio tracks with details
     - "get_audio_items": Get audio items in a track. Requires: track_index (1-based)
+    - "get_volume": Get clip volume. Requires: track_index, item_index (1-based)
+    - "set_volume": Set clip volume in dB. Requires: track_index, item_index, volume (float)
+    - "set_mute": Mute or unmute a track. Requires: track_index, muted (bool)
+    - "set_pan": Set clip pan. Requires: track_index, item_index, pan (-1.0 to 1.0)
+    - "fade_in": Set fade-in on clip. Requires: track_index, item_index, duration (frames)
+    - "fade_out": Set fade-out on clip. Requires: track_index, item_index, duration (frames)
 
     Args:
         action: The action to perform
         track_index: Audio track index, 1-based
+        item_index: Clip index within the track, 1-based
+        volume: Volume in dB (e.g. -6.0)
+        muted: True to mute, False to unmute
+        pan: Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right)
+        duration: Fade duration in frames
     """
     proj, tl, err = resolve.get_timeline()
     if err:
@@ -1306,9 +1325,24 @@ def fairlight(action: str, track_index: int | None = None) -> dict:
             })
         return _ok(track_index=track_index, items=result)
 
+    elif action == "get_volume":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        if not hasattr(item, "GetVolume"):
+            return _err("GetVolume() not available in this Resolve version")
+        vol = item.GetVolume()
+        return _ok(track_index=track_index, item_index=item_index, volume=vol)
+
     else:
         return _err(
-            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items"
+            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume"
         )
 
 
