@@ -232,6 +232,7 @@ def timeline(
     - "insert_generator": Insert a generator at playhead. Requires: name (generator name)
     - "delete_clips": Delete all clips on a track. Requires: track_type, track_index
     - "get_marker_clips": Find clips overlapping markers. Optional: name (marker color filter)
+    - "split_at_markers": Split clips at all marker positions. Optional: name (marker color filter)
 
     Args:
         action: The action to perform
@@ -475,12 +476,55 @@ def timeline(
                         })
         return _ok(clips=matched, marker_count=len(markers))
 
+    elif action == "split_at_markers":
+        if err:
+            return err
+        markers = tl.GetMarkers()
+        if not markers:
+            return _ok(splits_attempted=0, splits_succeeded=0, splits_failed=0, message="No markers found")
+        color_filter = name
+        attempted = 0
+        succeeded = 0
+        failed = 0
+        errors = []
+        video_count = tl.GetTrackCount("video")
+        for frame, marker_data in sorted(markers.items()):
+            if color_filter and marker_data.get("color") != color_filter:
+                continue
+            attempted += 1
+            split_ok = False
+            for track_i in range(1, video_count + 1):
+                items = tl.GetItemListInTrack("video", track_i)
+                if not items:
+                    continue
+                for item in items:
+                    if item.GetStart() < frame < item.GetEnd():
+                        try:
+                            if hasattr(tl, "SplitClip"):
+                                result_split = tl.SplitClip(item, frame)
+                                if result_split:
+                                    split_ok = True
+                            else:
+                                errors.append(f"Frame {frame}: SplitClip() not available")
+                        except Exception as e:
+                            errors.append(f"Frame {frame}: {e}")
+            if split_ok:
+                succeeded += 1
+            else:
+                failed += 1
+        return _ok(
+            splits_attempted=attempted,
+            splits_succeeded=succeeded,
+            splits_failed=failed,
+            errors=errors,
+        )
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
             "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips, "
-            "get_marker_clips"
+            "get_marker_clips, split_at_markers"
         )
 
 

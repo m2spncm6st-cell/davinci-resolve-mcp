@@ -228,3 +228,11 @@ class TestMarkerEditingWithResolve:
         assert result["success"] is True
         assert "clips" in result
         assert isinstance(result["clips"], list)
+
+    def test_split_at_markers_returns_summary(self):
+        """split_at_markers gibt Anzahl erfolgreicher und fehlgeschlagener Splits zurück."""
+        result = self.timeline(action="split_at_markers")
+        assert result["success"] is True
+        assert "splits_attempted" in result
+        assert "splits_succeeded" in result
+        assert "splits_failed" in result
