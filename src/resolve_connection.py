@@ -1,12 +1,15 @@
 """Lazy connection to DaVinci Resolve with reconnect logic."""
 
-import importlib
 import logging
 import os
 import sys
 import time
 
 logger = logging.getLogger(__name__)
+
+# Max retry attempts when connection is lost
+_MAX_RECONNECT_ATTEMPTS = 3
+_RECONNECT_DELAY = 1.0  # seconds between retries
 
 
 class ResolveConnection:
@@ -17,11 +20,11 @@ class ResolveConnection:
         self._last_check: float = 0
         self._check_interval: float = 2.0  # seconds between health checks
         self._timeout = timeout
+        self._consecutive_failures: int = 0
 
     def _get_resolve(self):
-        """Import and call GetResolve() from DaVinciResolveScript module."""
+        """Import and call scriptapp("Resolve") from DaVinciResolveScript module."""
         try:
-            # Ensure the scripting module path is available
             module_path = os.environ.get(
                 "PYTHONPATH",
                 "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
@@ -31,7 +34,10 @@ class ResolveConnection:
 
             import DaVinciResolveScript as dvr
 
-            return dvr.scriptapp("Resolve")
+            resolve = dvr.scriptapp("Resolve")
+            if resolve is None:
+                logger.warning("scriptapp('Resolve') returned None — Resolve may not be running")
+            return resolve
         except ImportError as e:
             logger.error("Failed to import DaVinciResolveScript: %s", e)
             return None
@@ -39,8 +45,21 @@ class ResolveConnection:
             logger.error("Failed to get Resolve instance: %s", e)
             return None
 
+    def _health_check(self) -> bool:
+        """Run a cheap health check against the cached connection."""
+        if not self._resolve:
+            return False
+        try:
+            result = self._resolve.GetProductName()
+            return result is not None
+        except Exception:
+            return False
+
     def connect(self):
         """Get a connection to Resolve, reconnecting if necessary.
+
+        Uses cached connection within check_interval. If health check fails,
+        retries up to _MAX_RECONNECT_ATTEMPTS times with delay.
 
         Returns the Resolve object or None if unavailable.
         """
@@ -50,25 +69,37 @@ class ResolveConnection:
         if self._resolve and (now - self._last_check) < self._check_interval:
             return self._resolve
 
-        # Health check: try to call a simple method
+        # Health check on existing connection
         if self._resolve:
-            try:
-                self._resolve.GetProductName()
+            if self._health_check():
                 self._last_check = now
+                self._consecutive_failures = 0
                 return self._resolve
-            except Exception:
+            else:
                 logger.warning("Lost connection to Resolve, attempting reconnect...")
                 self._resolve = None
 
-        # (Re)connect
-        self._resolve = self._get_resolve()
-        if self._resolve:
-            self._last_check = now
-            logger.info("Connected to DaVinci Resolve")
-        else:
-            logger.warning("Could not connect to DaVinci Resolve")
+        # (Re)connect with retries
+        for attempt in range(1, _MAX_RECONNECT_ATTEMPTS + 1):
+            self._resolve = self._get_resolve()
+            if self._resolve and self._health_check():
+                self._last_check = now
+                self._consecutive_failures = 0
+                logger.info("Connected to DaVinci Resolve (attempt %d)", attempt)
+                return self._resolve
 
-        return self._resolve
+            if attempt < _MAX_RECONNECT_ATTEMPTS:
+                logger.info("Reconnect attempt %d/%d failed, retrying...", attempt, _MAX_RECONNECT_ATTEMPTS)
+                time.sleep(_RECONNECT_DELAY)
+
+        self._resolve = None
+        self._consecutive_failures += 1
+        logger.warning(
+            "Could not connect to DaVinci Resolve after %d attempts (total failures: %d)",
+            _MAX_RECONNECT_ATTEMPTS,
+            self._consecutive_failures,
+        )
+        return None
 
     @property
     def is_connected(self) -> bool:

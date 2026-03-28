@@ -1,5 +1,7 @@
 """DaVinci Resolve MCP Server — Main entry point."""
 
+import functools
+import logging
 import sys
 import os
 from typing import Any
@@ -13,6 +15,8 @@ from mcp.server.fastmcp import FastMCP
 
 from resolve_connection import ResolveConnection, _err, _ok, _ser
 
+logger = logging.getLogger(__name__)
+
 mcp = FastMCP(
     "DaVinci Resolve",
     instructions="MCP server for controlling DaVinci Resolve via its Scripting API",
@@ -21,9 +25,22 @@ mcp = FastMCP(
 resolve = ResolveConnection()
 
 
+def safe_tool(func):
+    """Decorator that catches all exceptions in a tool and returns _err() instead of crashing."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.exception("Tool '%s' crashed", func.__name__)
+            return _err(f"Internal error in {func.__name__}: {e}")
+    return wrapper
+
+
 # ── resolve_status ──────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def resolve_status() -> dict:
     """Get DaVinci Resolve connection status, version, current project, and current page.
 
@@ -53,6 +70,7 @@ def resolve_status() -> dict:
 # ── resolve_control ─────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def resolve_control(action: str, page: str | None = None) -> dict:
     """Control DaVinci Resolve application.
 
@@ -98,6 +116,7 @@ def resolve_control(action: str, page: str | None = None) -> dict:
 # ── project ─────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def project(action: str, name: str | None = None) -> dict:
     """Manage DaVinci Resolve projects.
 
@@ -182,6 +201,7 @@ def project(action: str, name: str | None = None) -> dict:
 # ── timeline ────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def timeline(
     action: str,
     name: str | None = None,
@@ -305,6 +325,34 @@ def timeline(
         markers = tl.GetMarkers()
         return _ok(markers=_ser(markers))
 
+    elif action == "add_marker":
+        if err:
+            return err
+        if not track_index:
+            return _err("'track_index' is required (frame number to place marker)")
+        marker_color = name or "Blue"
+        result = tl.AddMarker(track_index, marker_color, "", "", 1)
+        return _ok(frame=track_index, color=marker_color, added=result)
+
+    elif action == "delete_markers":
+        if err:
+            return err
+        color = name or "All"
+        result = tl.DeleteMarkersByColor(color)
+        return _ok(color=color, deleted=result)
+
+    elif action == "get_settings":
+        if err:
+            return err
+        settings = {}
+        for key in ("timelineFrameRate", "timelineResolutionWidth", "timelineResolutionHeight",
+                     "timelineOutputResolutionWidth", "timelineOutputResolutionHeight",
+                     "timelinePlaybackFrameRate", "videoBitDepth", "videoMonitorFormat"):
+            val = tl.GetSetting(key)
+            if val:
+                settings[key] = val
+        return _ok(settings=settings)
+
     elif action == "duplicate":
         if err:
             return err
@@ -315,14 +363,15 @@ def timeline(
 
     else:
         return _err(
-            f"Unknown action: {action}. "
-            "Valid: list, get_current, set_current, create, get_tracks, get_items, get_markers, duplicate"
+            f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
+            "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, duplicate"
         )
 
 
 # ── media_pool ──────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def media_pool(
     action: str,
     folder_name: str | None = None,
@@ -336,7 +385,9 @@ def media_pool(
     - "get_current_folder": Get the name of the current folder
     - "set_current_folder": Set current folder by name. Requires: folder_name
     - "create_folder": Create a subfolder. Requires: folder_name
+    - "delete_folder": Delete a subfolder. Requires: folder_name
     - "list_clips": List all clips in the current folder
+    - "get_clip_info": Get detailed clip properties. Requires: folder_name (= clip name)
     - "import_media": Import media files. Requires: file_paths (list of absolute paths)
     - "create_timeline_from_clips": Create timeline from all clips in current folder. Requires: timeline_name
     - "get_root_folder": Navigate to root folder
@@ -344,7 +395,7 @@ def media_pool(
 
     Args:
         action: The action to perform
-        folder_name: Folder name (for set_current_folder, create_folder)
+        folder_name: Folder name (for set/create/delete_folder) or clip name (for get_clip_info)
         file_paths: List of absolute file paths (for import_media)
         timeline_name: Name for new timeline (for create_timeline_from_clips)
     """
@@ -457,17 +508,51 @@ def media_pool(
             return _ok(clips=[])
         return _ok(clips=[clip.GetName() for clip in selected])
 
+    elif action == "get_clip_info":
+        if err:
+            return err
+        if not folder_name:
+            return _err("'folder_name' is required (clip name to inspect)")
+        current = mp.GetCurrentFolder()
+        clips = current.GetClipList() if current else []
+        for clip in (clips or []):
+            if clip.GetName() == folder_name:
+                props = clip.GetClipProperty() or {}
+                metadata = clip.GetMetadata() or {}
+                return _ok(
+                    name=clip.GetName(),
+                    properties=_ser(props),
+                    metadata=_ser(metadata),
+                    media_id=clip.GetMediaId() if hasattr(clip, "GetMediaId") else None,
+                    unique_id=clip.GetUniqueId() if hasattr(clip, "GetUniqueId") else None,
+                )
+        return _err(f"Clip '{folder_name}' not found in current folder")
+
+    elif action == "delete_folder":
+        if err:
+            return err
+        if not folder_name:
+            return _err("'folder_name' is required")
+        current = mp.GetCurrentFolder()
+        subfolders = current.GetSubFolderList() if current else []
+        for f in (subfolders or []):
+            if f.GetName() == folder_name:
+                result = mp.DeleteFolders([f])
+                return _ok(folder=folder_name, deleted=result)
+        return _err(f"Folder '{folder_name}' not found")
+
     else:
         return _err(
-            f"Unknown action: {action}. "
-            "Valid: list_folders, get_current_folder, set_current_folder, create_folder, "
-            "list_clips, import_media, create_timeline_from_clips, get_root_folder, selected_clips"
+            f"Unknown action: {action}. Valid: list_folders, get_current_folder, set_current_folder, "
+            "create_folder, delete_folder, list_clips, get_clip_info, import_media, "
+            "create_timeline_from_clips, get_root_folder, selected_clips"
         )
 
 
 # ── color ───────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def color(
     action: str,
     node_index: int | None = None,
@@ -629,6 +714,7 @@ def color(
 # ── deliver ─────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def deliver(
     action: str,
     preset_name: str | None = None,
@@ -781,6 +867,7 @@ def deliver(
 # ── fusion ──────────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def fusion(
     action: str,
     comp_name: str | None = None,
@@ -884,6 +971,7 @@ def fusion(
 # ── fairlight ───────────────────────────────────────────────────────
 
 @mcp.tool()
+@safe_tool
 def fairlight(action: str, track_index: int | None = None) -> dict:
     """Audio/Fairlight tools for DaVinci Resolve.
 
