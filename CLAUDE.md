@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.4.0 — Marker-basiertes Editing hinzugefügt
+## Status: v1.5.0 — Full Stack API-Erweiterung
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (11 Tools, 89+ Actions)
+## Implementierte Tools (11 Tools, 111+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -53,20 +53,25 @@ list, get_current, open, save, create, close
 list, get_current, set_current, create, get_tracks, get_items, get_markers,
 add_marker, delete_markers, get_settings, duplicate,
 add_track, delete_track, export, insert_title, insert_generator, delete_clips,
-get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers
+get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers,
+get_timecode, set_timecode
 
-### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color)
+### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color, take_index, media_pool_clip, start_frame, end_frame, cache_type)
 get_current, get_properties, set_property, get_info, set_clip_color,
-clear_clip_color, set_enabled, get_source_info
+clear_clip_color, set_enabled, get_source_info,
+get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take,
+get_cache, set_cache, update_sidecar, stabilize
 
 ### media_pool(action, folder_name, file_paths, timeline_name)
 list_folders, get_current_folder, set_current_folder, create_folder, delete_folder,
 list_clips, get_clip_info, import_media, create_timeline_from_clips, get_root_folder,
 selected_clips, append_to_timeline
 
-### color(action, node_index, lut_path, item_index)
+### color(action, node_index, lut_path, item_index, version_name, version_type)
 get_current_item, get_node_graph, get_nodes, get_lut, set_lut,
-set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes
+set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes,
+list_versions, get_version, add_version, load_version, delete_version,
+create_magic_mask, regenerate_magic_mask, export_lut
 
 ### deliver(action, preset_name, target_dir, file_name, render_format, render_codec, job_id)
 get_formats, get_codecs, get_presets, load_preset, get_current_format, set_format,
@@ -77,9 +82,10 @@ is_rendering, delete_all_jobs
 list_comps, get_comp, add_comp, import_comp, export_comp, delete_comp,
 rename_comp, insert_fusion_clip
 
-### fairlight(action, track_index, item_index, volume, muted, pan, duration)
+### fairlight(action, track_index, item_index, volume, muted, pan, duration, enabled, amount)
 get_audio_tracks, get_audio_items,
-get_volume, set_volume, set_mute, set_pan, fade_in, fade_out
+get_volume, set_volume, set_mute, set_pan, fade_in, fade_out,
+get_voice_isolation, set_voice_isolation, get_audio_mapping
 
 ### transition(action, track_type, track_index, item_index, transition_type, duration)
 list_types, get, add, remove
@@ -94,6 +100,7 @@ list_types, get, add, remove
 - [x] Phase 6: Audio/Fairlight (v1.2.0)
 - [x] Phase 7: Transitions (v1.3.0)
 - [x] Phase 8: Marker-basiertes Editing (v1.4.0)
+- [x] Phase 9: Full Stack API-Erweiterung (v1.5.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -107,4 +114,4 @@ list_types, get, add, remove
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.4.0: Marker-basiertes Editing (get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers)
+2026-03-28 — v1.5.0: Full Stack API-Erweiterung (Playhead, Takes, Cache, Versions, Magic Mask, LUT Export, Voice Isolation, Audio Mapping)
