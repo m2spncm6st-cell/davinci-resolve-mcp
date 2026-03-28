@@ -280,3 +280,52 @@ class TestTimelinePlayheadWithResolve:
         result = self.timeline(action="set_timecode", name="invalid")
         assert result["success"] is False
         assert "format" in result["error"].lower()
+
+
+class TestTimelineItemTakesWithResolve:
+    """Take management tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import timeline_item
+        self.timeline_item = timeline_item
+
+    def test_get_takes_returns_list(self):
+        """get_takes gibt count und takes-Liste zurück."""
+        result = self.timeline_item(action="get_takes", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "count" in result
+        assert "takes" in result
+
+    def test_get_selected_take_returns_index(self):
+        """get_selected_take gibt selected_take zurück."""
+        result = self.timeline_item(action="get_selected_take", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "selected_take" in result
+
+    def test_add_take_missing_media_pool_clip(self):
+        """add_take ohne media_pool_clip gibt Fehler zurück."""
+        result = self.timeline_item(action="add_take", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is False
+        assert "media_pool_clip" in result["error"]
+
+    def test_select_take_missing_take_index(self):
+        """select_take ohne take_index gibt Fehler zurück."""
+        result = self.timeline_item(action="select_take", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is False
+        assert "take_index" in result["error"]
+
+    def test_delete_take_missing_take_index(self):
+        """delete_take ohne take_index gibt Fehler zurück."""
+        result = self.timeline_item(action="delete_take", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is False
+        assert "take_index" in result["error"]
+
+    def test_finalize_take_returns_result(self):
+        """finalize_take gibt finalized-Status zurück."""
+        result = self.timeline_item(action="finalize_take", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "finalized" in result

@@ -628,6 +628,11 @@ def timeline_item(
     property_name: str | None = None,
     property_value: str | None = None,
     clip_color: str | None = None,
+    take_index: int | None = None,
+    media_pool_clip: str | None = None,
+    start_frame: int | None = None,
+    end_frame: int | None = None,
+    cache_type: str | None = None,
 ) -> dict:
     """Edit individual clips/items on the timeline.
 
@@ -643,6 +648,16 @@ def timeline_item(
     - "clear_clip_color": Remove clip color
     - "set_enabled": Enable/disable a clip. Requires: property_value ("true"/"false")
     - "get_source_info": Get source frame range of the clip
+    - "get_takes": List all takes on a clip. Requires: track_type, track_index, item_index
+    - "get_selected_take": Get active take index. Requires: track_type, track_index, item_index
+    - "add_take": Add alternative media as take. Requires: track_type, track_index, item_index, media_pool_clip. Optional: start_frame, end_frame
+    - "select_take": Switch to a take. Requires: track_type, track_index, item_index, take_index (1-based)
+    - "delete_take": Remove a take. Requires: track_type, track_index, item_index, take_index (1-based)
+    - "finalize_take": Finalize the active take. Requires: track_type, track_index, item_index
+    - "get_cache": Get cache status. Requires: track_type, track_index, item_index
+    - "set_cache": Set cache. Requires: track_type, track_index, item_index, cache_type ("color"/"fusion"), property_value ("true"/"false")
+    - "update_sidecar": Update sidecar for BRAW/R3D. Requires: track_type, track_index, item_index
+    - "stabilize": Apply stabilization. Requires: track_type, track_index, item_index
 
     Available properties for set_property:
     Pan, Tilt, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY,
@@ -658,6 +673,11 @@ def timeline_item(
         property_name: Property key (for set_property)
         property_value: Property value as string (for set_property, set_enabled)
         clip_color: Clip color name (for set_clip_color)
+        take_index: Take index, 1-based (for select_take, delete_take)
+        media_pool_clip: Clip name in Media Pool (for add_take)
+        start_frame: Source start frame (for add_take)
+        end_frame: Source end frame (for add_take)
+        cache_type: Cache type "color" or "fusion" (for set_cache)
     """
     proj, tl, err = resolve.get_timeline()
     if err:
@@ -792,10 +812,79 @@ def timeline_item(
                 info["mark_in_out"] = _ser(mark)
         return _ok(**info)
 
+    elif action == "get_takes":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        count = item.GetTakesCount() if hasattr(item, "GetTakesCount") else 0
+        takes = []
+        for i in range(1, count + 1):
+            take = item.GetTakeByIndex(i)
+            takes.append({"index": i, "info": _ser(take)})
+        return _ok(count=count, takes=takes)
+
+    elif action == "get_selected_take":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        idx = item.GetSelectedTakeIndex() if hasattr(item, "GetSelectedTakeIndex") else 0
+        return _ok(selected_take=idx)
+
+    elif action == "add_take":
+        if not media_pool_clip:
+            return _err("'media_pool_clip' is required (clip name in current Media Pool folder)")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        # Find the MediaPoolItem by name
+        proj2, mp, mp_err = resolve.get_media_pool()
+        if mp_err:
+            return mp_err
+        folder = mp.GetCurrentFolder()
+        clips = folder.GetClipList()
+        mpi = None
+        if clips:
+            for c in clips:
+                if c.GetName() == media_pool_clip:
+                    mpi = c
+                    break
+        if not mpi:
+            return _err(f"Clip '{media_pool_clip}' not found in current Media Pool folder")
+        sf = start_frame or 0
+        ef = end_frame or mpi.GetClipProperty("End")
+        result = item.AddTake(mpi, sf, ef)
+        return _ok(added=bool(result), clip=media_pool_clip)
+
+    elif action == "select_take":
+        if take_index is None:
+            return _err("'take_index' is required (1-based)")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.SelectTakeByIndex(take_index)
+        return _ok(selected=bool(result), take_index=take_index)
+
+    elif action == "delete_take":
+        if take_index is None:
+            return _err("'take_index' is required (1-based)")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.DeleteTakeByIndex(take_index)
+        return _ok(deleted=bool(result), take_index=take_index)
+
+    elif action == "finalize_take":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.FinalizeTake()
+        return _ok(finalized=bool(result))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
-            "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info"
+            "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info, "
+            "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take"
         )
 
 
