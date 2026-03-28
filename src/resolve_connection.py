@@ -79,3 +79,77 @@ class ResolveConnection:
         """Clear the cached connection."""
         self._resolve = None
         self._last_check = 0
+
+    # --- Navigation Helpers ---
+    # These return tuples: (obj1, obj2, ..., error_or_none)
+    # If error is not None, the caller should return it immediately.
+
+    def check(self) -> tuple:
+        """Verify connection and get project manager + current project.
+
+        Returns: (project_manager, project, error_dict_or_none)
+        """
+        r = self.connect()
+        if not r:
+            return None, None, _err(
+                "Not connected to DaVinci Resolve. Is it running with External Scripting set to Local?"
+            )
+        pm = r.GetProjectManager()
+        if not pm:
+            return None, None, _err("Could not get ProjectManager")
+        project = pm.GetCurrentProject()
+        if not project:
+            return pm, None, _err("No project is currently open")
+        return pm, project, None
+
+    def get_media_pool(self) -> tuple:
+        """Navigate to MediaPool.
+
+        Returns: (project, media_pool, error_dict_or_none)
+        """
+        pm, project, err = self.check()
+        if err:
+            return None, None, err
+        mp = project.GetMediaPool()
+        if not mp:
+            return project, None, _err("Could not access MediaPool")
+        return project, mp, None
+
+    def get_timeline(self) -> tuple:
+        """Get the current timeline.
+
+        Returns: (project, timeline, error_dict_or_none)
+        """
+        pm, project, err = self.check()
+        if err:
+            return None, None, err
+        tl = project.GetCurrentTimeline()
+        if not tl:
+            return project, None, _err("No timeline is currently active")
+        return project, tl, None
+
+
+def _err(msg: str) -> dict:
+    """Standardized error response."""
+    return {"success": False, "error": msg}
+
+
+def _ok(**kwargs) -> dict:
+    """Standardized success response."""
+    return {"success": True, **kwargs}
+
+
+def _ser(obj) -> any:
+    """Serialize Resolve API objects to JSON-compatible types."""
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _ser(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_ser(item) for item in obj]
+    # Resolve objects — try to get their name
+    if hasattr(obj, "GetName"):
+        return obj.GetName()
+    return str(obj)

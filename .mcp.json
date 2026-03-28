@@ -2,8 +2,8 @@
   "mcpServers": {
     "davinci-resolve": {
       "type": "stdio",
-      "command": "python3",
-      "args": ["src/server.py"],
+      "command": "/Users/Alex/.pyenv/versions/3.12.11/bin/python3",
+      "args": ["/Users/Alex/Projects/davinci-resolve-mcp/src/server.py"],
       "env": {
         "RESOLVE_SCRIPT_API": "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
         "RESOLVE_SCRIPT_LIB": "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
