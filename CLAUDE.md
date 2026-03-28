@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.0.0 — Feature-Complete
+## Status: v1.2.0 — Audio/Fairlight erweitert
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung

@@ -1398,6 +1398,8 @@ def fairlight(
         if item_index < 1 or item_index > len(items):
             return _err(f"item_index {item_index} out of range (1–{len(items)})")
         item = items[item_index - 1]
+        if not hasattr(item, "SetProperty"):
+            return _err("SetProperty() not available in this Resolve version")
         result = item.SetProperty("FadeInDuration", duration)
         return _ok(track_index=track_index, item_index=item_index, duration=duration, set=result)
 
@@ -1413,6 +1415,8 @@ def fairlight(
         if item_index < 1 or item_index > len(items):
             return _err(f"item_index {item_index} out of range (1–{len(items)})")
         item = items[item_index - 1]
+        if not hasattr(item, "SetProperty"):
+            return _err("SetProperty() not available in this Resolve version")
         result = item.SetProperty("FadeOutDuration", duration)
         return _ok(track_index=track_index, item_index=item_index, duration=duration, set=result)
 
