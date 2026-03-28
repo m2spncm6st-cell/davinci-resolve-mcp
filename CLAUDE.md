@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (10 Tools, 75+ Actions)
+## Implementierte Tools (10 Tools, 81+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -76,8 +76,9 @@ is_rendering, delete_all_jobs
 list_comps, get_comp, add_comp, import_comp, export_comp, delete_comp,
 rename_comp, insert_fusion_clip
 
-### fairlight(action, track_index)
-get_audio_tracks, get_audio_items
+### fairlight(action, track_index, item_index, volume, muted, pan, duration)
+get_audio_tracks, get_audio_items,
+get_volume, set_volume, set_mute, set_pan, fade_in, fade_out
 
 ## Phasenplan
 - [x] Phase 0: Setup & Umgebung
@@ -86,6 +87,7 @@ get_audio_tracks, get_audio_items
 - [x] Phase 3: Erweiterte Tools (v0.3.0)
 - [x] Phase 4: Stabilisierung & Polish (v1.0.0)
 - [x] Phase 5: Editing-Capabilities (v1.1.0)
+- [x] Phase 6: Audio/Fairlight (v1.2.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -99,4 +101,4 @@ get_audio_tracks, get_audio_items
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.1.0: 10 Tools, 75+ Actions, Clip-Editing (SetProperty, AppendToTimeline, Export), timeline_item Tool
+2026-03-28 — v1.2.0: fairlight erweitert (get_volume, set_volume, set_mute, set_pan, fade_in, fade_out)
