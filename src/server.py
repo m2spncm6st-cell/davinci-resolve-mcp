@@ -233,6 +233,8 @@ def timeline(
     - "delete_clips": Delete all clips on a track. Requires: track_type, track_index
     - "get_marker_clips": Find clips overlapping markers. Optional: name (marker color filter)
     - "split_at_markers": Split clips at all marker positions. Optional: name (marker color filter)
+    - "delete_between_markers": Delete all clips fully within two frame positions.
+      Requires: track_index (marker_a_frame), index (marker_b_frame)
 
     Args:
         action: The action to perform
@@ -524,12 +526,41 @@ def timeline(
             errors=errors,
         )
 
+    elif action == "delete_between_markers":
+        if err:
+            return err
+        # marker_a_frame wird als track_index übergeben, marker_b_frame als index
+        marker_a = track_index
+        marker_b = index
+        if marker_a is None or marker_b is None:
+            return _err(
+                "'marker_a_frame' (track_index) and 'marker_b_frame' (index) are required. "
+                "Pass the frame numbers as track_index and index parameters."
+            )
+        if marker_a >= marker_b:
+            return _err(f"marker_a_frame ({marker_a}) must be less than marker_b_frame ({marker_b})")
+        video_count = tl.GetTrackCount("video")
+        clips_to_delete = []
+        for track_i in range(1, video_count + 1):
+            items = tl.GetItemListInTrack("video", track_i)
+            if not items:
+                continue
+            for item in items:
+                start = item.GetStart()
+                end = item.GetEnd()
+                if start >= marker_a and end <= marker_b:
+                    clips_to_delete.append(item)
+        if not clips_to_delete:
+            return _ok(deleted=0, message=f"No clips fully within frames {marker_a}–{marker_b}")
+        result_del = tl.DeleteClips(clips_to_delete)
+        return _ok(deleted=len(clips_to_delete), from_frame=marker_a, to_frame=marker_b, result=result_del)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
             "duplicate, add_track, delete_track, export, insert_title, insert_generator, delete_clips, "
-            "get_marker_clips, split_at_markers"
+            "get_marker_clips, split_at_markers, delete_between_markers"
         )
 
 

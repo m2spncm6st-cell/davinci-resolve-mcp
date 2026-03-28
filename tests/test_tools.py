@@ -236,3 +236,9 @@ class TestMarkerEditingWithResolve:
         assert "splits_attempted" in result
         assert "splits_succeeded" in result
         assert "splits_failed" in result
+
+    def test_delete_between_markers_missing_params(self):
+        """delete_between_markers ohne marker_a_frame gibt Fehler zurück."""
+        result = self.timeline(action="delete_between_markers")
+        assert result["success"] is False
+        assert "marker_a_frame" in result["error"]
