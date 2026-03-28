@@ -151,3 +151,15 @@ class TestFairlightWithResolve:
         result = self.fairlight(action="set_pan", track_index=1, item_index=1, pan=2.5)
         assert result["success"] is False
         assert "1.0" in result["error"]
+
+    def test_fade_in_missing_duration(self):
+        """fade_in ohne duration gibt Fehler zurück."""
+        result = self.fairlight(action="fade_in", track_index=1, item_index=1)
+        assert result["success"] is False
+        assert "duration" in result["error"]
+
+    def test_fade_out_missing_duration(self):
+        """fade_out ohne duration gibt Fehler zurück."""
+        result = self.fairlight(action="fade_out", track_index=1, item_index=1)
+        assert result["success"] is False
+        assert "duration" in result["error"]

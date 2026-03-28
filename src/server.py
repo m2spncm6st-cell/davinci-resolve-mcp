@@ -1386,9 +1386,40 @@ def fairlight(
         result = item.SetProperty("Pan", pan)
         return _ok(track_index=track_index, item_index=item_index, pan=pan, set=result)
 
+    elif action == "fade_in":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        if duration is None:
+            return _err("'duration' is required (frames as int, e.g. 24 for 1 second at 24fps)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        result = item.SetProperty("FadeInDuration", duration)
+        return _ok(track_index=track_index, item_index=item_index, duration=duration, set=result)
+
+    elif action == "fade_out":
+        if track_index is None or item_index is None:
+            return _err("'track_index' and 'item_index' are required (1-based)")
+        if duration is None:
+            return _err("'duration' is required (frames as int, e.g. 24 for 1 second at 24fps)")
+        items = tl.GetItemListInTrack("audio", track_index)
+        if items is None:
+            return _err(f"Could not get items from audio track {track_index}")
+        items = list(items)
+        if item_index < 1 or item_index > len(items):
+            return _err(f"item_index {item_index} out of range (1–{len(items)})")
+        item = items[item_index - 1]
+        result = item.SetProperty("FadeOutDuration", duration)
+        return _ok(track_index=track_index, item_index=item_index, duration=duration, set=result)
+
     else:
         return _err(
-            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, get_volume, set_volume, set_mute, set_pan"
+            f"Unknown action: {action}. Valid: get_audio_tracks, get_audio_items, "
+            "get_volume, set_volume, set_mute, set_pan, fade_in, fade_out"
         )
 
 
