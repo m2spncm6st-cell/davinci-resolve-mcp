@@ -145,3 +145,9 @@ class TestFairlightWithResolve:
         result = self.fairlight(action="set_mute", track_index=1)
         assert result["success"] is False
         assert "muted" in result["error"]
+
+    def test_set_pan_out_of_range(self):
+        """set_pan mit pan außerhalb -1.0..1.0 gibt Fehler zurück."""
+        result = self.fairlight(action="set_pan", track_index=1, item_index=1, pan=2.5)
+        assert result["success"] is False
+        assert "1.0" in result["error"]
