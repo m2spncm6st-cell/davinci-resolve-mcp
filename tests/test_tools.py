@@ -329,3 +329,52 @@ class TestTimelineItemTakesWithResolve:
         result = self.timeline_item(action="finalize_take", track_type="video", track_index=1, item_index=0)
         assert result["success"] is True
         assert "finalized" in result
+
+
+class TestTimelineItemCacheWithResolve:
+    """Cache/sidecar/stabilize tests that only run when Resolve is available."""
+
+    def setup_method(self):
+        if not _resolve_available():
+            import pytest
+            pytest.skip("DaVinci Resolve not running")
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.server import timeline_item
+        self.timeline_item = timeline_item
+
+    def test_get_cache_returns_status(self):
+        """get_cache gibt color_cache und fusion_cache zurück."""
+        result = self.timeline_item(action="get_cache", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "color_cache" in result
+        assert "fusion_cache" in result
+
+    def test_set_cache_missing_cache_type(self):
+        """set_cache ohne cache_type gibt Fehler zurück."""
+        result = self.timeline_item(
+            action="set_cache", track_type="video", track_index=1, item_index=0,
+            property_value="true"
+        )
+        assert result["success"] is False
+        assert "cache_type" in result["error"]
+
+    def test_set_cache_invalid_cache_type(self):
+        """set_cache mit ungültigem cache_type gibt Fehler zurück."""
+        result = self.timeline_item(
+            action="set_cache", track_type="video", track_index=1, item_index=0,
+            cache_type="invalid", property_value="true"
+        )
+        assert result["success"] is False
+        assert "color" in result["error"] or "fusion" in result["error"]
+
+    def test_update_sidecar_returns_result(self):
+        """update_sidecar gibt updated-Status zurück."""
+        result = self.timeline_item(action="update_sidecar", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "updated" in result
+
+    def test_stabilize_returns_result(self):
+        """stabilize gibt stabilized-Status zurück."""
+        result = self.timeline_item(action="stabilize", track_type="video", track_index=1, item_index=0)
+        assert result["success"] is True
+        assert "stabilized" in result

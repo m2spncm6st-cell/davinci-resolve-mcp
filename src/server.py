@@ -880,11 +880,51 @@ def timeline_item(
         result = item.FinalizeTake()
         return _ok(finalized=bool(result))
 
+    elif action == "get_cache":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        color_cache = item.GetIsColorOutputCacheEnabled() if hasattr(item, "GetIsColorOutputCacheEnabled") else None
+        fusion_cache = item.GetIsFusionOutputCacheEnabled() if hasattr(item, "GetIsFusionOutputCacheEnabled") else None
+        return _ok(color_cache=color_cache, fusion_cache=fusion_cache)
+
+    elif action == "set_cache":
+        if not cache_type:
+            return _err("'cache_type' is required ('color' or 'fusion')")
+        if cache_type not in ("color", "fusion"):
+            return _err(f"Invalid cache_type '{cache_type}'. Valid: color, fusion")
+        if property_value is None:
+            return _err("'property_value' is required ('true' or 'false')")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        enabled = property_value.lower() != "false"
+        if cache_type == "color":
+            result = item.SetColorOutputCache(enabled)
+        else:
+            result = item.SetFusionOutputCache(enabled)
+        return _ok(cache_type=cache_type, enabled=enabled, set=bool(result))
+
+    elif action == "update_sidecar":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.UpdateSidecar() if hasattr(item, "UpdateSidecar") else False
+        return _ok(updated=bool(result))
+
+    elif action == "stabilize":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.Stabilize() if hasattr(item, "Stabilize") else False
+        return _ok(stabilized=bool(result))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
             "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info, "
-            "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take"
+            "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take, "
+            "get_cache, set_cache, update_sidecar, stabilize"
         )
 
 
