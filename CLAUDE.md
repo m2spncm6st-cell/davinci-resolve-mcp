@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.5.0 — Full Stack API-Erweiterung
+## Status: v1.6.0 — Color Grading & Bugfixes
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -38,7 +38,7 @@ claude mcp add davinci-resolve --scope project \
 - **Navigation-Helpers**: `check()`, `get_media_pool()`, `get_timeline()` mit Tupel-Rückgabe
 - **Normalisierte Responses**: `_err(msg)`, `_ok(**kw)`, `_ser(obj)`
 
-## Implementierte Tools (11 Tools, 111+ Actions)
+## Implementierte Tools (11 Tools, 114+ Actions)
 
 ### resolve_status()
 Verbindungsstatus, Version, Projekt, Page
@@ -60,7 +60,8 @@ get_timecode, set_timecode
 get_current, get_properties, set_property, get_info, set_clip_color,
 clear_clip_color, set_enabled, get_source_info,
 get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take,
-get_cache, set_cache, update_sidecar, stabilize
+get_cache, set_cache, update_sidecar, stabilize,
+set_cdl, copy_grades, smart_reframe
 
 ### media_pool(action, folder_name, file_paths, timeline_name)
 list_folders, get_current_folder, set_current_folder, create_folder, delete_folder,
@@ -101,6 +102,7 @@ list_types, get, add, remove
 - [x] Phase 7: Transitions (v1.3.0)
 - [x] Phase 8: Marker-basiertes Editing (v1.4.0)
 - [x] Phase 9: Full Stack API-Erweiterung (v1.5.0)
+- [x] Phase 10: Color Grading & Bugfixes (v1.6.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -108,10 +110,13 @@ list_types, get, add, remove
 - "External scripting using: Local" muss in Resolve-Einstellungen aktiv sein
 - FastMCP v1.26: `description` heißt `instructions`
 - `.mcp.json` allein reicht nicht — `claude mcp add` für erste Registrierung nötig
+- Resolve 20.3: Transitions per API nicht möglich (AddTransitionByName = NoneType)
+- Resolve 20.3: SplitClip() nicht verfügbar → Workaround: AppendToTimeline mit In/Out-Points
+- Resolve 20.3: Neue .cube LUT-Dateien erst nach Neustart sichtbar
 
 ## Git-Workflow
 - Conventional Commits auf Deutsch
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-28 — v1.5.0: Full Stack API-Erweiterung (Playhead, Takes, Cache, Versions, Magic Mask, LUT Export, Voice Isolation, Audio Mapping)
+2026-03-29 — v1.6.0: Color Grading & Bugfixes (SetCDL, CopyGrades, SmartReframe, AddMarker-Fix)

@@ -351,8 +351,9 @@ def timeline(
         if not track_index:
             return _err("'track_index' is required (frame number to place marker)")
         marker_color = name or "Blue"
-        result = tl.AddMarker(track_index, marker_color, "", "", 1)
-        return _ok(frame=track_index, color=marker_color, added=result)
+        marker_name = f"Marker @ {track_index}"
+        result = tl.AddMarker(track_index, marker_color, marker_name, "", 1)
+        return _ok(frame=track_index, color=marker_color, name=marker_name, added=result)
 
     elif action == "delete_markers":
         if err:
@@ -658,6 +659,10 @@ def timeline_item(
     - "set_cache": Set cache. Requires: track_type, track_index, item_index, cache_type ("color"/"fusion"), property_value ("true"/"false")
     - "update_sidecar": Update sidecar for BRAW/R3D. Requires: track_type, track_index, item_index
     - "stabilize": Apply stabilization. Requires: track_type, track_index, item_index
+    - "set_cdl": Set CDL color correction. Requires: property_value ("slope;offset;power;saturation").
+      Example: "0.94 0.88 0.82;-0.04 -0.03 0.0;0.95 0.95 0.95;0.75". Optional: property_name (node index, default "1")
+    - "copy_grades": Copy grades from this clip to all others on same track. Requires: track_type, track_index, item_index
+    - "smart_reframe": Apply AI smart reframing. Requires: track_type, track_index, item_index
 
     Available properties for set_property:
     Pan, Tilt, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY,
@@ -919,12 +924,61 @@ def timeline_item(
         result = item.Stabilize() if hasattr(item, "Stabilize") else False
         return _ok(stabilized=bool(result))
 
+    elif action == "set_cdl":
+        # Set CDL (Color Decision List) correction on a clip
+        # property_value format: "slope_r slope_g slope_b;offset_r offset_g offset_b;power_r power_g power_b;saturation"
+        # Example: "0.94 0.88 0.82;-0.04 -0.035 -0.005;0.92 0.94 0.98;0.72"
+        if not property_value:
+            return _err(
+                "'property_value' is required — format: 'slope_r slope_g slope_b;offset_r offset_g offset_b;"
+                "power_r power_g power_b;saturation'. Example: '0.94 0.88 0.82;-0.04 -0.03 0.0;0.95 0.95 0.95;0.75'"
+            )
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        parts = property_value.split(";")
+        if len(parts) != 4:
+            return _err("CDL needs 4 parts separated by ';': slope;offset;power;saturation")
+        cdl = {
+            "NodeIndex": str(property_name or "1"),
+            "Slope": parts[0].strip(),
+            "Offset": parts[1].strip(),
+            "Power": parts[2].strip(),
+            "Saturation": parts[3].strip(),
+        }
+        result = item.SetCDL(cdl)
+        return _ok(cdl=cdl, applied=bool(result))
+
+    elif action == "copy_grades":
+        # Copy grades from the source clip to all other clips on the same track
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        tt = track_type or "video"
+        ti = track_index or 1
+        all_items = tl.GetItemListInTrack(tt, ti)
+        if not all_items:
+            return _err(f"No items on {tt} track {ti}")
+        targets = [it for it in all_items if it != item]
+        if not targets:
+            return _err("No other clips to copy grades to")
+        result = item.CopyGrades(targets)
+        return _ok(copied=bool(result), source_index=item_index, target_count=len(targets))
+
+    elif action == "smart_reframe":
+        # Apply AI-based smart reframing to a clip
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        result = item.SmartReframe()
+        return _ok(reframed=bool(result))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
             "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info, "
             "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take, "
-            "get_cache, set_cache, update_sidecar, stabilize"
+            "get_cache, set_cache, update_sidecar, stabilize, set_cdl, copy_grades, smart_reframe"
         )
 
 
