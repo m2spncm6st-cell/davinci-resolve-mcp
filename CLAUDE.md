@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.6.0 — Color Grading & Bugfixes
+## Status: v1.7.0 — Cinematic FPV Edit: Zeb Gardner D-Log M Workflow
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -103,6 +103,7 @@ list_types, get, add, remove
 - [x] Phase 8: Marker-basiertes Editing (v1.4.0)
 - [x] Phase 9: Full Stack API-Erweiterung (v1.5.0)
 - [x] Phase 10: Color Grading & Bugfixes (v1.6.0)
+- [x] Phase 11: Cinematic FPV Edit — Zeb Gardner D-Log M Workflow (v1.7.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -113,10 +114,13 @@ list_types, get, add, remove
 - Resolve 20.3: Transitions per API nicht möglich (AddTransitionByName = NoneType)
 - Resolve 20.3: SplitClip() nicht verfügbar → Workaround: AppendToTimeline mit In/Out-Points
 - Resolve 20.3: Neue .cube LUT-Dateien erst nach Neustart sichtbar
+- Resolve 20.3: AddMarker schlägt fehl bei leerem name="" → immer non-empty name übergeben
+- LUT-Indexierung: SetLUT() akzeptiert nur beim Start indexierte Pfade → bestehende .cube überschreiben
+- DJI_X7_DLOG2Rec709.cube enthält jetzt Zeb Gardner LUT (Original nicht mehr vorhanden)
 
 ## Git-Workflow
 - Conventional Commits auf Deutsch
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-29 — v1.6.0: Color Grading & Bugfixes (SetCDL, CopyGrades, SmartReframe, AddMarker-Fix)
+2026-03-29 — v1.7.0: Cinematic FPV Edit mit Zeb Gardner D-Log M → Rec.709 LUT (Professioneller Workflow für DJI O3/D-Log M, 6-Segment-Cut, dramatisches CDL-Grading per Segment, Indexed-LUT-Workaround)

@@ -53,3 +53,24 @@ Abwechselnde Zoom/Pan-Varianten pro Segment:
 - **Slow-Motion:** Retime nicht per Scripting API steuerbar → manuell nachziehen
 - **Power Windows/Vignette:** Nicht per API erstellbar → manuell nachziehen
 - **Keyframed Movements:** API setzt statische Werte, kein Keyframing
+
+## Implementierungs-Status (2026-03-29)
+
+### ✅ Abgeschlossen
+- Timeline "Cinematic Final" erstellt (Duplikat von "Test Timeline")
+- 6 Segmente á ~1086 Frames via AppendToTimeline (In/Out-Points Workaround)
+- Reframing pro Segment (ZoomX/Pan/Tilt via SetProperty)
+- Marker mit Non-Empty-Names (AddMarker-Fix)
+- **Color Grade:** Zeb Gardner D-LOG-M → Rec.709 LUT (6.9MB, 65x65x65, reverse-engineered)
+- **CDL per Segment:** Dramatisches Grading (warme Highlights, teal Schatten, moody Desaturation 0.72–0.78)
+- Indexed-LUT-Workaround: Punchy_FPV_DJI_O3.cube temporär mit Zeb Gardner Inhalt überschrieben
+
+### ⚠️ Manuell nachziehen
+- Slow-Motion (Retime) für gewünschte Sequenzen
+- Transitions (Cmd+T in Resolve — API in 20.3 nicht verfügbar)
+- Power Window / Vignette für Finishing
+
+### 🎬 Professioneller Workflow (Recherche-Ergebnis)
+- **Quellen:** zebgardner.com, hueman.com, FPV-Community (Reddit/YouTube)
+- **Empfehlung:** Zeb Gardner D-Log M LUT → ASC CDL → (optional) Noise Reduction
+- **Wichtig für D-Log M:** Shadow Lift (+0.03), Saturation korrigieren (0.87), kein CST verwenden
