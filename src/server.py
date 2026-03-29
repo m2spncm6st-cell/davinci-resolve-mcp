@@ -1223,6 +1223,9 @@ def color(
     - "create_magic_mask": Create magic mask. Requires: lut_path (mode: "F"=Forward, "B"=Backward, "BI"=Bidirectional)
     - "regenerate_magic_mask": Regenerate existing magic mask
     - "export_lut": Export LUT from clip. Requires: node_index (0=.cube, 1=.3dl), lut_path (output file path)
+    - "grab_and_analyze": Grab the current frame and analyze luma/color. Returns metrics + suggested CDL power.
+    - "analyze_timeline": Measure all clips on video track 1. Returns luma + suggested CDL power for every clip automatically.
+    - "auto_grade": Measure ALL clips and apply CDL Power in one step. Optional: node_index as target luma (default 0.38).
 
     Args:
         action: The action to perform
@@ -1448,13 +1451,659 @@ def color(
         result = item.ExportLUT(node_index, lut_path)
         return _ok(exported=bool(result), path=lut_path)
 
+    elif action == "grab_and_analyze":
+        # Analyze current frame via ffmpeg on source clip (bypasses Resolve Gallery API)
+        if err:
+            return err
+
+        import os as _os
+        import math as _math
+        import subprocess as _subprocess
+        import tempfile as _tempfile
+        import json as _json
+
+        # Get source file path and timecode from current timeline item
+        items = tl.GetItemListInTrack("video", 1)
+        if not items:
+            return _err("No clips on video track 1")
+
+        # Find which item covers the current playhead
+        tc_str = tl.GetCurrentTimecode()
+        # Convert timecode to frame number
+        settings = tl.GetSetting()
+        fps_str = settings.get("timelineFrameRate", "24")
+        try:
+            fps = float(fps_str)
+        except Exception:
+            fps = 24.0
+
+        def _tc_to_frames(tc, fps):
+            parts = tc.replace(";", ":").split(":")
+            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+            return int((h * 3600 + m * 60 + s) * fps + f)
+
+        cur_frame = _tc_to_frames(tc_str, fps)
+
+        current_item = None
+        for item in items:
+            start = item.GetStart()
+            end = item.GetEnd()
+            if start <= cur_frame < end:
+                current_item = item
+                break
+        if current_item is None:
+            current_item = items[0]
+
+        media = current_item.GetMediaPoolItem()
+        if not media:
+            return _err("Cannot get MediaPoolItem for current clip")
+        clip_path = media.GetClipProperty("File Path")
+        if not clip_path or not _os.path.exists(clip_path):
+            return _err(f"Source file not found: {clip_path}")
+
+        # Compute offset within the clip (in seconds)
+        item_start = current_item.GetStart()
+        clip_offset_frames = max(0, cur_frame - item_start)
+        clip_start_frame = current_item.GetSourceStartFrame() if hasattr(current_item, "GetSourceStartFrame") else 0
+        source_frame = clip_start_frame + clip_offset_frames
+        offset_sec = source_frame / fps
+
+        # Extract frame with ffmpeg, analyze luma via signalstats filter
+        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
+        if not _os.path.exists(ffmpeg):
+            ffmpeg = "ffmpeg"
+
+        # Find LUT for post-LUT Rec709 measurement
+        LUT_ROOTS = [
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
+            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
+        ]
+        def _find_lut_grab(lut_rel):
+            if not lut_rel:
+                return None
+            if _os.path.isabs(lut_rel) and _os.path.exists(lut_rel):
+                return lut_rel
+            for root in LUT_ROOTS:
+                c = _os.path.join(root, lut_rel)
+                if _os.path.exists(c):
+                    return c
+            return None
+
+        lut_path = None
+        try:
+            lut_rel = current_item.GetLUT(1) if hasattr(current_item, "GetLUT") else None
+            lut_path = _find_lut_grab(lut_rel)
+        except Exception:
+            pass
+
+        out_png = _os.path.join(_tempfile.gettempdir(), "resolve_analyze_frame.png")
+        try:
+            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
+            if lut_path:
+                safe_lut = lut_path.replace("\\", "/").replace(":", "\\:")
+                cmd += ["-vf", f"lut3d='{safe_lut}'"]
+            cmd += ["-vframes", "1", "-q:v", "2", out_png]
+            _subprocess.run(cmd, capture_output=True, timeout=15)
+            if not _os.path.exists(out_png):
+                return _err(f"ffmpeg could not extract frame from {clip_path} at {offset_sec:.2f}s")
+
+            import numpy as np
+            from PIL import Image
+
+            img = Image.open(out_png).convert("RGB")
+            if img.width > 1920:
+                img = img.resize((1920, 1080), Image.BILINEAR)
+            arr = np.array(img, dtype=np.float32) / 255.0
+
+            r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+            luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+
+            mean_luma = float(np.mean(luma))
+            r_mean = float(np.mean(r_ch))
+            g_mean = float(np.mean(g_ch))
+            b_mean = float(np.mean(b_ch))
+            p05 = float(np.percentile(luma, 5))
+            p95 = float(np.percentile(luma, 95))
+            shadow_pct = float(np.mean(luma < 0.20) * 100)
+            mid_pct = float(np.mean((luma >= 0.20) & (luma < 0.70)) * 100)
+            hi_pct = float(np.mean(luma >= 0.70) * 100)
+
+            TARGET_LUMA = 0.38
+            if 0.005 < mean_luma < 0.995:
+                sug_power = round(_math.log(TARGET_LUMA) / _math.log(mean_luma), 3)
+                sug_power = max(0.50, min(1.80, sug_power))
+            else:
+                sug_power = 1.0
+
+            assessment = (
+                "too_dark" if mean_luma < 0.20 else
+                "slightly_dark" if mean_luma < 0.33 else
+                "good" if mean_luma < 0.50 else
+                "bright"
+            )
+
+        finally:
+            try:
+                _os.remove(out_png)
+            except Exception:
+                pass
+
+        return _ok(
+            source="ffmpeg",
+            clip_path=clip_path,
+            offset_sec=round(offset_sec, 2),
+            mean_luma=round(mean_luma, 3),
+            luma_p05=round(p05, 3),
+            luma_p95=round(p95, 3),
+            channels=dict(r=round(r_mean, 3), g=round(g_mean, 3), b=round(b_mean, 3)),
+            zones=dict(shadows=round(shadow_pct, 1), midtones=round(mid_pct, 1), highlights=round(hi_pct, 1)),
+            assessment=assessment,
+            suggested_power=f"{sug_power:.3f} {sug_power:.3f} {sug_power:.3f}",
+            note=f"Luma measured {'post-LUT (Rec709)' if lut_path else 'on DLog source (no LUT found)'}",
+            lut_applied=_os.path.basename(lut_path) if lut_path else None,
+        )
+
+    elif action == "analyze_timeline":
+        # Measure all clips on video track 1 and return luma stats + suggested CDL power for each
+        if err:
+            return err
+
+        import os as _os
+        import math as _math
+        import subprocess as _subprocess
+        import tempfile as _tempfile
+
+        items = tl.GetItemListInTrack("video", 1)
+        if not items:
+            return _err("No clips on video track 1")
+
+        settings = tl.GetSetting()
+        fps_str = settings.get("timelineFrameRate", "24")
+        try:
+            fps = float(fps_str)
+        except Exception:
+            fps = 24.0
+
+        # Timeline start offset in frames (e.g. 01:00:00:00 = 90000 frames at 25fps)
+        def _tc_to_frames_inner(tc, fps):
+            parts = tc.replace(";", ":").split(":")
+            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+            return int((h * 3600 + m * 60 + s) * fps + f)
+
+        tl_start_tc = tl.GetStartTimecode() if hasattr(tl, "GetStartTimecode") else "01:00:00:00"
+        tl_start_frame = _tc_to_frames_inner(tl_start_tc, fps)
+
+        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
+        if not _os.path.exists(ffmpeg):
+            ffmpeg = "ffmpeg"
+
+        TARGET_LUMA = 0.38
+
+        # Find the LUT applied to node 1 of the first clip (assume same LUT for all)
+        LUT_SEARCH_ROOTS = [
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
+            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
+        ]
+        def _find_lut(lut_relative):
+            if not lut_relative:
+                return None
+            if _os.path.isabs(lut_relative) and _os.path.exists(lut_relative):
+                return lut_relative
+            for root in LUT_SEARCH_ROOTS:
+                candidate = _os.path.join(root, lut_relative)
+                if _os.path.exists(candidate):
+                    return candidate
+            return None
+
+        # Try to get LUT from first clip node 1
+        first_items = tl.GetItemListInTrack("video", 1) or []
+        applied_lut_path = None
+        if first_items:
+            try:
+                first_grade = first_items[0].GetNodeGraph(1) if hasattr(first_items[0], "GetNodeGraph") else None
+                # Use color tool to get LUT path
+                lut_rel = first_items[0].GetLUT(1) if hasattr(first_items[0], "GetLUT") else None
+                applied_lut_path = _find_lut(lut_rel)
+            except Exception:
+                pass
+
+        out_png = _os.path.join(_tempfile.gettempdir(), "resolve_analyze_frame.png")
+
+        def _source_offset_sec(item, fps):
+            """Return the correct source-file seek time in seconds for the clip's mid-frame.
+            Uses GetLeftOffset() (= in-point offset from clip start) when available,
+            so clips that were trimmed at the in-point are measured correctly."""
+            tl_start = item.GetStart()
+            tl_end   = item.GetEnd()
+            tl_mid   = (tl_start + tl_end) // 2
+            clip_frames_from_head = tl_mid - tl_start   # frames into this clip from its in-point
+
+            # GetLeftOffset() = how many frames were trimmed off the front of the source
+            left_offset = 0
+            try:
+                left_offset = int(item.GetLeftOffset())
+            except Exception:
+                pass
+
+            source_frame = left_offset + clip_frames_from_head
+            return max(0.0, source_frame / fps)
+
+        def _measure_frame(clip_path, offset_sec, lut_path):
+            """Extract one frame with ffmpeg, optionally apply LUT, return luma stats dict."""
+            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
+            if lut_path:
+                safe = lut_path.replace("\\", "/").replace(":", "\\:")
+                cmd += ["-vf", f"lut3d='{safe}'"]
+            cmd += ["-vframes", "1", "-q:v", "2", out_png]
+            _subprocess.run(cmd, capture_output=True, timeout=15)
+            if not _os.path.exists(out_png):
+                return None
+
+            import numpy as np
+            from PIL import Image
+            img = Image.open(out_png).convert("RGB")
+            if img.width > 1920:
+                img = img.resize((1920, 1080), Image.BILINEAR)
+            arr = np.array(img, dtype=np.float32) / 255.0
+            r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+            luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+            try:
+                _os.remove(out_png)
+            except Exception:
+                pass
+            return {
+                "mean": float(_np_mean := __import__("numpy").mean(luma)),
+                "p05":  float(__import__("numpy").percentile(luma, 5)),
+                "p95":  float(__import__("numpy").percentile(luma, 95)),
+            }
+
+        def _luma_stats(arr_luma):
+            import numpy as np
+            return {
+                "mean": float(np.mean(arr_luma)),
+                "p05":  float(np.percentile(arr_luma, 5)),
+                "p95":  float(np.percentile(arr_luma, 95)),
+            }
+
+        def _measure_frame_v2(clip_path, offset_sec, lut_path):
+            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
+            if lut_path:
+                safe = lut_path.replace("\\", "/").replace(":", "\\:")
+                cmd += ["-vf", f"lut3d='{safe}'"]
+            cmd += ["-vframes", "1", "-q:v", "2", out_png]
+            _subprocess.run(cmd, capture_output=True, timeout=15)
+            if not _os.path.exists(out_png):
+                return None
+            try:
+                import numpy as np
+                from PIL import Image
+                img = Image.open(out_png).convert("RGB")
+                if img.width > 1920:
+                    img = img.resize((1920, 1080), Image.BILINEAR)
+                arr = np.array(img, dtype=np.float32) / 255.0
+                r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+                luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+                return {
+                    "mean": float(np.mean(luma)),
+                    "p05":  float(np.percentile(luma, 5)),
+                    "p95":  float(np.percentile(luma, 95)),
+                }
+            finally:
+                try:
+                    _os.remove(out_png)
+                except Exception:
+                    pass
+
+        def _analyze_clip(item, idx):
+            media = item.GetMediaPoolItem()
+            if not media:
+                return {"clip": idx, "error": "no MediaPoolItem"}
+            clip_path = media.GetClipProperty("File Path")
+            if not clip_path or not _os.path.exists(clip_path):
+                return {"clip": idx, "error": f"file not found: {clip_path}"}
+
+            offset_sec = _source_offset_sec(item, fps)
+
+            # Per-clip LUT lookup (fallback to pre-resolved applied_lut_path)
+            lut_path = applied_lut_path
+            if lut_path is None:
+                try:
+                    lut_rel = item.GetLUT(1) if hasattr(item, "GetLUT") else None
+                    lut_path = _find_lut(lut_rel)
+                except Exception:
+                    pass
+
+            stats = _measure_frame_v2(clip_path, offset_sec, lut_path)
+            if stats is None:
+                return {"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"}
+
+            mean_luma = stats["mean"]
+            if 0.005 < mean_luma < 0.995:
+                sug_power = round(_math.log(TARGET_LUMA) / _math.log(mean_luma), 3)
+                sug_power = max(0.50, min(1.80, sug_power))
+            else:
+                sug_power = 1.0
+
+            # Timeline mid-frame → timecode string
+            tl_mid = (item.GetStart() + item.GetEnd()) // 2
+            total_sec = tl_mid / fps
+            h = int(total_sec // 3600)
+            m = int((total_sec % 3600) // 60)
+            s = int(total_sec % 60)
+            f = int(round((total_sec % 1) * fps))
+            tc = f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
+
+            return {
+                "clip": idx,
+                "timecode": tc,
+                "clip_path": _os.path.basename(clip_path),
+                "offset_sec": round(offset_sec, 2),
+                "mean_luma": round(mean_luma, 3),
+                "luma_p05": round(stats["p05"], 3),
+                "luma_p95": round(stats["p95"], 3),
+                "suggested_power": f"{sug_power:.3f} {sug_power:.3f} {sug_power:.3f}",
+                "_item": item,   # kept for auto_grade, stripped before return
+                "_power": sug_power,
+            }
+
+        results = []
+        for idx, item in enumerate(items, start=1):
+            results.append(_analyze_clip(item, idx))
+
+        # Strip internal keys before returning
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]
+
+        return _ok(
+            clip_count=len(clean),
+            target_luma=TARGET_LUMA,
+            note=f"Luma measured {'post-LUT (Rec709)' if applied_lut_path else 'on DLog source (no LUT found)'}. suggested_power targets mean_luma={TARGET_LUMA}",
+            lut_applied=_os.path.basename(applied_lut_path) if applied_lut_path else None,
+            clips=clean
+        )
+
+    elif action == "auto_grade":
+        # Measure all clips + apply CDL Power in one step
+        if err:
+            return err
+
+        import os as _os
+        import math as _math
+        import subprocess as _subprocess
+        import tempfile as _tempfile
+
+        items = tl.GetItemListInTrack("video", 1)
+        if not items:
+            return _err("No clips on video track 1")
+
+        settings = tl.GetSetting()
+        try:
+            fps = float(settings.get("timelineFrameRate", "24"))
+        except Exception:
+            fps = 24.0
+
+        def _tc_to_f(tc, fps):
+            parts = tc.replace(";", ":").split(":")
+            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+            return int((h * 3600 + m * 60 + s) * fps + f)
+
+        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
+        if not _os.path.exists(ffmpeg):
+            ffmpeg = "ffmpeg"
+
+        TARGET_LUMA = float(node_index) if node_index and str(node_index).replace(".", "").isdigit() else 0.38
+
+        LUT_ROOTS = [
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
+            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
+        ]
+        def _find_lut_ag(lut_rel):
+            if not lut_rel:
+                return None
+            if _os.path.isabs(lut_rel) and _os.path.exists(lut_rel):
+                return lut_rel
+            for root in LUT_ROOTS:
+                c = _os.path.join(root, lut_rel)
+                if _os.path.exists(c):
+                    return c
+            return None
+
+        # Resolve LUT once from first clip
+        applied_lut = None
+        try:
+            lut_rel = items[0].GetLUT(1) if hasattr(items[0], "GetLUT") else None
+            applied_lut = _find_lut_ag(lut_rel)
+        except Exception:
+            pass
+
+        out_png = _os.path.join(_tempfile.gettempdir(), "resolve_autograde_frame.png")
+        applied = []
+
+        for idx, item in enumerate(items, start=1):
+            media = item.GetMediaPoolItem()
+            if not media:
+                applied.append({"clip": idx, "error": "no MediaPoolItem"})
+                continue
+            clip_path = media.GetClipProperty("File Path")
+            if not clip_path or not _os.path.exists(clip_path):
+                applied.append({"clip": idx, "error": f"file not found: {clip_path}"})
+                continue
+
+            # Correct source offset using in-point trim
+            tl_start = item.GetStart()
+            tl_end   = item.GetEnd()
+            tl_mid   = (tl_start + tl_end) // 2
+            left_offset = 0
+            try:
+                left_offset = int(item.GetLeftOffset())
+            except Exception:
+                pass
+            source_frame = left_offset + (tl_mid - tl_start)
+            offset_sec = max(0.0, source_frame / fps)
+
+            # Per-clip LUT
+            lut_path = applied_lut
+            if lut_path is None:
+                try:
+                    lut_rel = item.GetLUT(1) if hasattr(item, "GetLUT") else None
+                    lut_path = _find_lut_ag(lut_rel)
+                except Exception:
+                    pass
+
+            # Extract + measure frame
+            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
+            if lut_path:
+                safe = lut_path.replace("\\", "/").replace(":", "\\:")
+                cmd += ["-vf", f"lut3d='{safe}'"]
+            cmd += ["-vframes", "1", "-q:v", "2", out_png]
+            _subprocess.run(cmd, capture_output=True, timeout=15)
+
+            if not _os.path.exists(out_png):
+                applied.append({"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"})
+                continue
+
+            try:
+                import numpy as np
+                from PIL import Image
+                img = Image.open(out_png).convert("RGB")
+                if img.width > 1920:
+                    img = img.resize((1920, 1080), Image.BILINEAR)
+                arr = np.array(img, dtype=np.float32) / 255.0
+                luma = 0.2126 * arr[:,:,0] + 0.7152 * arr[:,:,1] + 0.0722 * arr[:,:,2]
+                mean_luma = float(np.mean(luma))
+            finally:
+                try:
+                    _os.remove(out_png)
+                except Exception:
+                    pass
+
+            if 0.005 < mean_luma < 0.995:
+                power = round(_math.log(TARGET_LUMA) / _math.log(mean_luma), 3)
+                power = max(0.50, min(1.80, power))
+            else:
+                power = 1.0
+
+            # Navigate playhead to this clip and apply CDL
+            tl.SetCurrentTimecode(f"{int(tl_mid // (fps * 3600)):02d}:{int((tl_mid // fps % 3600) // 60):02d}:{int(tl_mid // fps % 60):02d}:{int(tl_mid % fps):02d}")
+            cdl_str = f"1.0 1.0 1.0;0.0 0.0 0.0;{power:.3f} {power:.3f} {power:.3f};1.0"
+            cdl_ok = item.SetCDL({
+                "NodeIndex": "1",
+                "Slope": "1.0 1.0 1.0",
+                "Offset": "0.0 0.0 0.0",
+                "Power": f"{power:.3f} {power:.3f} {power:.3f}",
+                "Saturation": "1.0"
+            }) if hasattr(item, "SetCDL") else False
+
+            applied.append({
+                "clip": idx,
+                "mean_luma_before": round(mean_luma, 3),
+                "power_applied": f"{power:.3f} {power:.3f} {power:.3f}",
+                "cdl_set": bool(cdl_ok),
+            })
+
+        return _ok(
+            clip_count=len(applied),
+            target_luma=TARGET_LUMA,
+            lut_applied=_os.path.basename(applied_lut) if applied_lut else None,
+            note=f"Measured {'post-LUT (Rec709)' if applied_lut else 'DLog source'}. CDL Power applied to node 1 of each clip.",
+            clips=applied
+        )
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current_item, get_node_graph, get_nodes, "
             "get_lut, set_lut, set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes, "
             "list_versions, get_version, add_version, load_version, delete_version, "
-            "create_magic_mask, regenerate_magic_mask, export_lut"
+            "create_magic_mask, regenerate_magic_mask, export_lut, grab_and_analyze, analyze_timeline, auto_grade"
         )
+
+
+# ── analyze_media ───────────────────────────────────────────────────
+
+@mcp.tool()
+@safe_tool
+def analyze_media(
+    file_path: str,
+    action: str = "overview",
+    scene_threshold: float = 0.40,
+    sample_interval: int = 90,
+) -> dict:
+    """Analyze a media file for intelligent editing and grading decisions.
+
+    Uses ffprobe and ffmpeg — no Resolve connection required.
+
+    Actions:
+    - "overview": Duration, fps, resolution, codec, bitrate
+    - "scenes": Detect scene/shot changes. Optional: scene_threshold (0.1–0.9, lower = more sensitive, default 0.4)
+    - "brightness": Sample luma at regular intervals to find dark/bright segments.
+                    Optional: sample_interval (every N frames, default 90)
+    - "full": All of the above combined
+
+    Args:
+        file_path: Absolute path to the media file
+        action: What to analyze (overview | scenes | brightness | full)
+        scene_threshold: Scene detection sensitivity 0.1–0.9 (default 0.4)
+        sample_interval: Sample every N frames for brightness analysis (default 90)
+    """
+    import subprocess
+    import json
+    import os
+    import re
+    import shutil
+
+    if not os.path.exists(file_path):
+        return _err(f"File not found: {file_path}")
+
+    ffprobe = shutil.which("ffprobe") or "/Users/Alex/.local/bin/ffprobe"
+    ffmpeg = shutil.which("ffmpeg") or "/Users/Alex/.local/bin/ffmpeg"
+
+    result: dict = {}
+
+    # ── overview ────────────────────────────────────────────────────
+    if action in ("overview", "full"):
+        cmd = [ffprobe, "-v", "quiet", "-print_format", "json",
+               "-show_format", "-show_streams", file_path]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            return _err(f"ffprobe failed: {r.stderr[:300]}")
+        info = json.loads(r.stdout)
+        vs = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+        fmt = info.get("format", {})
+        if vs:
+            num, den = (int(x) for x in vs.get("r_frame_rate", "30/1").split("/"))
+            fps = num / den if den else 30.0
+            duration = float(fmt.get("duration", 0))
+            result["overview"] = {
+                "duration_s": round(duration, 2),
+                "fps": round(fps, 3),
+                "total_frames": int(fps * duration),
+                "resolution": f"{vs.get('width')}x{vs.get('height')}",
+                "codec": vs.get("codec_name"),
+                "bitrate_mbps": round(int(fmt.get("bit_rate", 0)) / 1_000_000, 2),
+            }
+
+    # ── scene detection ─────────────────────────────────────────────
+    if action in ("scenes", "full"):
+        cmd = [ffmpeg, "-i", file_path,
+               "-vf", f"scdet=threshold={scene_threshold}",
+               "-f", "null", "-"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        timestamps = []
+        for line in r.stderr.splitlines():
+            m = re.search(r"lavfi\.scd\.time=([\d.]+)", line)
+            if not m:
+                m = re.search(r"pts_time:([\d.]+).*?score", line)
+            if m:
+                t = round(float(m.group(1)), 2)
+                if not timestamps or t - timestamps[-1] > 0.5:
+                    timestamps.append(t)
+        duration = result.get("overview", {}).get("duration_s", 0)
+        result["scenes"] = {
+            "count": len(timestamps),
+            "cut_times_s": timestamps,
+            "avg_scene_s": round(duration / max(len(timestamps) + 1, 1), 1),
+        }
+
+    # ── brightness sampling ─────────────────────────────────────────
+    if action in ("brightness", "full"):
+        fps = result.get("overview", {}).get("fps", 29.97)
+        duration = result.get("overview", {}).get("duration_s", 0)
+        if not duration:
+            cmd = [ffprobe, "-v", "quiet", "-show_entries", "format=duration",
+                   "-print_format", "json", file_path]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            duration = float(json.loads(r.stdout).get("format", {}).get("duration", 0))
+
+        cmd = [
+            ffmpeg, "-i", file_path,
+            "-vf", f"select='not(mod(n\\,{sample_interval}))',signalstats",
+            "-f", "null", "-"
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        samples = []
+        for line in r.stderr.splitlines():
+            m = re.search(r"YAVG=([\d.]+)", line)
+            if m:
+                samples.append(round(float(m.group(1)) / 255.0, 3))
+
+        if samples:
+            interval_s = sample_interval / fps
+            timestamped = [
+                {"t_s": round(i * interval_s, 1), "luma": v}
+                for i, v in enumerate(samples)
+            ]
+            result["brightness"] = {
+                "sample_count": len(samples),
+                "mean_luma": round(sum(samples) / len(samples), 3),
+                "min_luma": round(min(samples), 3),
+                "max_luma": round(max(samples), 3),
+                "dynamic_range": round(max(samples) - min(samples), 3),
+                "dark_segments": [
+                    s for s in timestamped if s["luma"] < 0.25
+                ],
+                "samples": timestamped,
+            }
+
+    return _ok(**result)
 
 
 # ── deliver ─────────────────────────────────────────────────────────
