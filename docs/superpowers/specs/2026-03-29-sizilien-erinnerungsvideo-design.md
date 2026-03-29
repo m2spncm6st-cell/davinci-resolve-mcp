@@ -44,7 +44,7 @@ Alle 92 iPhone-Dateien stammen ausschließlich vom Ätna-Tag. Kein iPhone-Materi
 
 **Name:** `Sizilien_Erinnerung`
 **Format:** 4K (3840×2160), 25fps, Rec.709
-**Verhalten 100fps-Clips auf 25fps-Timeline:** automatisch ×4 Zeitlupe
+**Verhalten 100fps-Clips auf 25fps-Timeline:** Clip-Speed explizit auf 25% setzen → ×4 Zeitlupe (Resolve macht das NICHT automatisch)
 
 ### Schnittfolge
 
@@ -69,7 +69,8 @@ Alle 92 iPhone-Dateien stammen ausschließlich vom Ätna-Tag. Kein iPhone-Materi
 [ÜBERGANG]  Fade-to-black 1s
 
 [ACT 2 — PACHINO]  ca. 30s
-  DJI_0940  20s regulär + letzte 10s = Hero Balkon-Landung SlowMo
+  DJI_0940  Clip-Speed 25% → ganzer Clip wird zu ~366s, davon 30s verwenden
+  Hero-Shot: letzten ~10s Echtzeit (Balkon-Landung) = ~40s SlowMo auf Timeline
   Titel: "Pachino — Casa Tino"
 
 [ÜBERGANG]  Fade-to-black 1s
