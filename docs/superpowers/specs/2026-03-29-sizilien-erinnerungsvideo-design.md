@@ -44,7 +44,17 @@ Alle 92 iPhone-Dateien stammen ausschließlich vom Ätna-Tag. Kein iPhone-Materi
 
 **Name:** `Sizilien_Erinnerung`
 **Format:** 4K (3840×2160), 25fps, Rec.709
-**Verhalten 100fps-Clips auf 25fps-Timeline:** Clip-Speed explizit auf 25% setzen → ×4 Zeitlupe (Resolve macht das NICHT automatisch)
+**SlowMo:** Dezent, nur kurze Momente — kein ganzer Clip verlangsamt.
+
+### SlowMo-Einsatz (sparsam)
+
+| Clip | SlowMo-Moment |
+|---|---|
+| DJI_0938 | ~5s am Kraterrand — kurz, dezent |
+| DJI_0940 | Letzte ~5s der Balkon-Landung — Hero-Shot |
+| Alle anderen | 100% — normales Tempo |
+
+Technisch: Clip wird per `append_to_timeline` mit `startFrame`/`endFrame` in zwei Teile geteilt — normaler Teil + SlowMo-Teil (speed 25%).
 
 ### Schnittfolge
 
@@ -53,14 +63,14 @@ Alle 92 iPhone-Dateien stammen ausschließlich vom Ätna-Tag. Kein iPhone-Materi
   Schwarzbild 2s
   Fade-in → Titel "Sizilien 2025" (3s) → Fade-out
 
-[ACT 1 — ÄTNA]  ca. 100s
-  DJI_0934  25s  (startFrame 0)
+[ACT 1 — ÄTNA]  ca. 90s
+  DJI_0934  20s  normal  (startFrame 0)
   STILL: IMG_7159   3s
-  DJI_0936  20s  (startFrame 0)
+  DJI_0936  20s  normal  (startFrame 0)
   STILL: IMG_1302   3s
-  DJI_0937  20s  (startFrame 0)
+  DJI_0937  15s  normal  (startFrame 0)
   STILL: IMG_7177   3s
-  DJI_0938  20s  (startFrame 0)
+  DJI_0938  15s normal + 5s SlowMo Kraterrand
   STILL: IMG_7187   3s
   STILL: IMG_7207   3s
   STILL: IMG_1323   3s
@@ -68,17 +78,16 @@ Alle 92 iPhone-Dateien stammen ausschließlich vom Ätna-Tag. Kein iPhone-Materi
 
 [ÜBERGANG]  Fade-to-black 1s
 
-[ACT 2 — PACHINO]  ca. 30s
-  DJI_0940  Clip-Speed 25% → ganzer Clip wird zu ~366s, davon 30s verwenden
-  Hero-Shot: letzten ~10s Echtzeit (Balkon-Landung) = ~40s SlowMo auf Timeline
+[ACT 2 — PACHINO]  ca. 25s
+  DJI_0940  20s normal + 5s SlowMo Balkon-Landung (Hero-Shot)
   Titel: "Pachino — Casa Tino"
 
 [ÜBERGANG]  Fade-to-black 1s
 
 [ACT 3 — KÜSTE]  ca. 60s
-  DJI_0942  20s  (startFrame 0)
-  DJI_0943  20s  (startFrame 0)
-  DJI_0947  20s  (startFrame 0)
+  DJI_0942  20s  normal  (startFrame 0)
+  DJI_0943  20s  normal  (startFrame 0)
+  DJI_0947  20s  normal  (startFrame 0)
   Titel: "Sizilianische Küste"
 
 [OUTRO]
