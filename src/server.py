@@ -688,6 +688,9 @@ def timeline_item(
     start_frame: int | None = None,
     end_frame: int | None = None,
     cache_type: str | None = None,
+    start_s: float | None = None,
+    end_s: float | None = None,
+    fps: float | None = None,
 ) -> dict:
     """Edit individual clips/items on the timeline.
 
@@ -719,6 +722,11 @@ def timeline_item(
     - "smart_reframe": Apply AI smart reframing. Requires: track_type, track_index, item_index
     - "set_speed": Set clip playback speed (retime). Requires: property_value (speed % as string, e.g. "25" for 25% = 4x slowmo, "50" for 2x slowmo, "200" for 2x fast).
       Optional: property_name ("ripple" = "true"/"false", default "false"). 100 = normal speed.
+    - "trim": Set In/Out point of a clip already on the timeline. Requires at least one of:
+      start_frame/start_s (source In-point) or end_frame/end_s (source Out-point).
+      Optional: fps (auto-detected from clip if omitted). track_type, track_index, item_index to identify clip.
+      start_frame/end_frame = absolute source frame numbers at native clip fps.
+      start_s/end_s = seconds into source clip (converted to frames via fps).
 
     Available properties for set_property:
     Pan, Tilt, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY,
@@ -739,6 +747,9 @@ def timeline_item(
         start_frame: Source start frame (for add_take)
         end_frame: Source end frame (for add_take)
         cache_type: Cache type "color" or "fusion" (for set_cache)
+        start_s: Source In-point in seconds (for trim)
+        end_s: Source Out-point in seconds (for trim)
+        fps: Native clip fps for seconds conversion (for trim, auto-detected if omitted)
     """
     proj, tl, err = resolve.get_timeline()
     if err:
@@ -1043,13 +1054,73 @@ def timeline_item(
         result = item.ChangeClipSpeed(speed, ripple)
         return _ok(item=item.GetName(), speed=speed, ripple=ripple, applied=bool(result))
 
+    elif action == "trim":
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        if start_frame is None and start_s is None and end_frame is None and end_s is None:
+            return _err("trim requires at least one of: start_frame, start_s, end_frame, end_s")
+
+        # Resolve fps: explicit > auto-detect from source clip
+        clip_fps = fps
+        if clip_fps is None:
+            try:
+                source = item.GetSourceItem()
+                fps_str = source.GetClipProperty("FPS") if source else None
+                clip_fps = float(fps_str) if fps_str else 25.0
+            except Exception:
+                clip_fps = 25.0
+
+        # Convert seconds to frames
+        sf = start_frame
+        ef = end_frame
+        if start_s is not None and sf is None:
+            sf = int(start_s * clip_fps)
+        if end_s is not None and ef is None:
+            ef = int(end_s * clip_fps)
+
+        applied_left = None
+        applied_right = None
+
+        if sf is not None:
+            result = item.SetLeftOffset(sf)
+            if result is False:
+                return _err(f"SetLeftOffset({sf}) fehlgeschlagen — Offset außerhalb des Source-Clips?")
+            applied_left = sf
+
+        if ef is not None:
+            try:
+                source = item.GetSourceItem()
+                total_str = source.GetClipProperty("Frames") if source else None
+                total_frames = int(total_str) if total_str else None
+            except Exception:
+                total_frames = None
+
+            if total_frames is None:
+                return _err("Konnte Gesamtframe-Anzahl des Source-Clips nicht ermitteln — end_frame/end_s nicht anwendbar")
+
+            right_offset = total_frames - ef - 1
+            if right_offset < 0:
+                return _err(f"end_frame {ef} liegt außerhalb des Source-Clips ({total_frames} Frames)")
+            result = item.SetRightOffset(right_offset)
+            if result is False:
+                return _err(f"SetRightOffset({right_offset}) fehlgeschlagen — Offset außerhalb des Source-Clips?")
+            applied_right = right_offset
+
+        return _ok(
+            item=item.GetName(),
+            left_offset_set=applied_left,
+            right_offset_set=applied_right,
+            fps_used=clip_fps,
+        )
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
             "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info, "
             "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take, "
             "get_cache, set_cache, update_sidecar, stabilize, set_cdl, copy_grades, smart_reframe, "
-            "set_speed"
+            "set_speed, trim"
         )
 
 
