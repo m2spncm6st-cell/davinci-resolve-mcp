@@ -2,6 +2,7 @@
 
 import functools
 import logging
+import shutil
 import sys
 import os
 from typing import Any
@@ -1694,7 +1695,6 @@ def color(
         import subprocess as _subprocess
         import tempfile as _tempfile
         import json as _json
-        import shutil as _shutil
 
         # Get source file path and timecode from current timeline item
         items = tl.GetItemListInTrack("video", 1)
@@ -1738,7 +1738,7 @@ def color(
         offset_sec = source_frame / fps
 
         # Extract frame with ffmpeg, analyze luma via signalstats filter
-        ffmpeg = _shutil.which("ffmpeg")
+        ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
@@ -1834,7 +1834,6 @@ def color(
         import math as _math
         import subprocess as _subprocess
         import tempfile as _tempfile
-        import shutil as _shutil
 
         items = tl.GetItemListInTrack("video", 1)
         if not items:
@@ -1851,7 +1850,7 @@ def color(
         tl_start_tc = tl.GetStartTimecode() if hasattr(tl, "GetStartTimecode") else "01:00:00:00"
         tl_start_frame = tc_to_frames(tl_start_tc, fps)
 
-        ffmpeg = _shutil.which("ffmpeg")
+        ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
@@ -2000,7 +1999,6 @@ def color(
         import math as _math
         import subprocess as _subprocess
         import tempfile as _tempfile
-        import shutil as _shutil
 
         items = tl.GetItemListInTrack("video", 1)
         if not items:
@@ -2012,7 +2010,7 @@ def color(
         except Exception:
             fps = 24.0
 
-        ffmpeg = _shutil.which("ffmpeg")
+        ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
@@ -2164,13 +2162,12 @@ def analyze_media(
     import json
     import os
     import re
-    import shutil as _shutil
 
     if not os.path.exists(file_path):
         return _err(f"File not found: {file_path}")
 
-    ffprobe = _shutil.which("ffprobe")
-    ffmpeg = _shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    ffmpeg = shutil.which("ffmpeg")
     if not ffprobe or not ffmpeg:
         missing = ", ".join(t for t, v in [("ffprobe", ffprobe), ("ffmpeg", ffmpeg)] if not v)
         return _err(f"{missing} not found in PATH. Install via: brew install ffmpeg")
