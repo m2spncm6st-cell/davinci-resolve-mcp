@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.7.0 — Cinematic FPV Edit: Zeb Gardner D-Log M Workflow
+## Status: v1.9.0 — Timeline Trim, Multi-Clip-Append, Global MCP
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -57,17 +57,19 @@ add_track, delete_track, export, insert_title, insert_generator, delete_clips,
 get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers,
 get_timecode, set_timecode
 
-### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color, take_index, media_pool_clip, start_frame, end_frame, cache_type)
+### timeline_item(action, track_type, track_index, item_index, property_name, property_value, clip_color, take_index, media_pool_clip, start_frame, end_frame, cache_type, start_s, end_s, fps)
 get_current, get_properties, set_property, get_info, set_clip_color,
 clear_clip_color, set_enabled, get_source_info,
 get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take,
 get_cache, set_cache, update_sidecar, stabilize,
-set_cdl, copy_grades, smart_reframe, set_speed
+set_cdl, copy_grades, smart_reframe, set_speed,
+trim (Clip In/Out-Punkt setzen: start_frame/start_s, end_frame/end_s, fps auto-detect)
 
-### media_pool(action, folder_name, file_paths, timeline_name, start_frame, end_frame, duration_s, start_s, fps)
+### media_pool(action, folder_name, file_paths, timeline_name, start_frame, end_frame, duration_s, start_s, fps, clip_specs)
 list_folders, get_current_folder, set_current_folder, create_folder, delete_folder,
 list_clips, get_clip_info, import_media, create_timeline_from_clips, get_root_folder,
-selected_clips, append_to_timeline (trim: start_frame/end_frame or start_s/duration_s)
+selected_clips, append_to_timeline (single-clip: start_frame/end_frame/start_s/duration_s;
+multi-clip: clip_specs JSON-Array mit per-Clip name/start_frame/end_frame/start_s/duration_s/fps)
 
 ### color(action, node_index, lut_path, item_index, version_name, version_type)
 get_current_item, get_node_graph, get_nodes, get_lut, set_lut,
@@ -106,13 +108,14 @@ list_types, get, add, remove
 - [x] Phase 10: Color Grading & Bugfixes (v1.6.0)
 - [x] Phase 11: Cinematic FPV Edit — Zeb Gardner D-Log M Workflow (v1.7.0)
 - [x] Phase 12: Sizilien Erinnerungsvideo — MCP Lücken geschlossen (v1.8.0)
+- [x] Phase 13: Timeline Trim, Multi-Clip-Append, Global MCP (v1.9.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
 - Resolve muss laufen bevor Tools aufgerufen werden
 - "External scripting using: Local" muss in Resolve-Einstellungen aktiv sein
 - FastMCP v1.26: `description` heißt `instructions`
-- `.mcp.json` allein reicht nicht — `claude mcp add` für erste Registrierung nötig
+- MCP ist per `--scope user` global registriert — funktioniert in jedem Verzeichnis
 - Resolve 20.3: Transitions per API nicht möglich (AddTransitionByName = NoneType)
 - Resolve 20.3: SplitClip() nicht verfügbar → Workaround: AppendToTimeline mit In/Out-Points
 - Resolve 20.3: Neue .cube LUT-Dateien erst nach Neustart sichtbar
@@ -127,4 +130,4 @@ list_types, get, add, remove
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-30 — v1.8.0: MCP-Lücken aus Sizilien-Projekt geschlossen: project get/set_settings, timeline delete, timeline_item set_speed, media_pool append_to_timeline mit Trim-Support (start_frame/end_frame/start_s/duration_s)
+2026-03-30 — v1.9.0: timeline_item action=trim (SetLeftOffset/SetRightOffset), media_pool clip_specs Multi-Clip-Trim, MCP User-Scope global registriert

@@ -529,3 +529,74 @@ def test_trim_right_offset_calculation():
     assert _right_offset(99, 100) == 0
     # end_frame = 0 → offset = total-1
     assert _right_offset(0, 100) == 99
+
+
+# ── clip_specs JSON parsing tests ────────────────────────────────
+
+
+import json as _json
+
+
+def _parse_clip_specs(clip_specs_str):
+    """Replica of the parsing logic used in media_pool append_to_timeline."""
+    return _json.loads(clip_specs_str)
+
+
+def _resolve_clip_frames(spec, clip_fps=25.0):
+    """Replica of per-clip frame resolution logic."""
+    sf = spec.get("start_frame")
+    ef = spec.get("end_frame")
+    start_s = spec.get("start_s")
+    duration_s = spec.get("duration_s")
+    fps = spec.get("fps", clip_fps)
+
+    if start_s is not None and sf is None:
+        sf = int(start_s * fps)
+    if duration_s is not None and ef is None:
+        base = sf if sf is not None else 0
+        ef = base + int(duration_s * fps) - 1
+    return sf, ef
+
+
+def test_clip_specs_parse_valid_json():
+    specs = _parse_clip_specs('[{"name": "clip1.mp4", "start_s": 10, "duration_s": 5}]')
+    assert len(specs) == 1
+    assert specs[0]["name"] == "clip1.mp4"
+
+
+def test_clip_specs_parse_multiple_clips():
+    raw = '[{"name": "a.mp4"}, {"name": "b.mp4", "start_frame": 0, "end_frame": 99}]'
+    specs = _parse_clip_specs(raw)
+    assert len(specs) == 2
+
+
+def test_clip_specs_invalid_json_raises():
+    try:
+        _parse_clip_specs("not json")
+        assert False, "Should have raised"
+    except _json.JSONDecodeError:
+        pass
+
+
+def test_clip_specs_resolve_frames_from_seconds():
+    sf, ef = _resolve_clip_frames({"start_s": 2.0, "duration_s": 3.0}, clip_fps=25.0)
+    assert sf == 50
+    assert ef == 50 + 75 - 1  # 124
+
+
+def test_clip_specs_resolve_frames_direct():
+    sf, ef = _resolve_clip_frames({"start_frame": 0, "end_frame": 249})
+    assert sf == 0
+    assert ef == 249
+
+
+def test_clip_specs_no_trim():
+    sf, ef = _resolve_clip_frames({"name": "clip.mp4"})
+    assert sf is None
+    assert ef is None
+
+
+def test_clip_specs_per_clip_fps_override():
+    sf, ef = _resolve_clip_frames({"start_s": 1.0, "duration_s": 1.0, "fps": 100.0})
+    assert sf == 100
+    assert ef == 199

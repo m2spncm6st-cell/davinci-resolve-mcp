@@ -1138,6 +1138,7 @@ def media_pool(
     duration_s: float | None = None,
     start_s: float | None = None,
     fps: float | None = None,
+    clip_specs: str | None = None,
 ) -> dict:
     """Manage the DaVinci Resolve Media Pool.
 
@@ -1155,9 +1156,11 @@ def media_pool(
     - "selected_clips": Get currently selected clips in the Media Pool
     - "append_to_timeline": Append clips from current folder to active timeline.
       Optional: file_paths (clip names to filter).
-      Trim support: start_frame/end_frame (source frame numbers at native fps),
+      Trim support (single clip): start_frame/end_frame (source frame numbers at native fps),
       OR start_s/duration_s (seconds, requires fps parameter or auto-detected from clip).
-      Single clip per call when using trim. fps defaults to clip's native fps if omitted.
+      Multi-clip trim: clip_specs (JSON array, see below). Overrides file_paths/start_frame/etc.
+      clip_specs format: '[{"name":"clip.mp4","start_s":10,"duration_s":5},{"name":"b.mp4"}]'
+      Per-clip fields: name (required), start_frame, end_frame, start_s, duration_s, fps.
 
     Args:
         action: The action to perform
@@ -1169,6 +1172,7 @@ def media_pool(
         duration_s: Duration in seconds to take from clip (alternative to end_frame)
         start_s: Start offset in seconds into clip (alternative to start_frame)
         fps: Native clip fps for second-based calculations (auto-detected if omitted)
+        clip_specs: JSON array of clip dicts for multi-clip trim (overrides single-clip trim params)
     """
     proj, mp, err = resolve.get_media_pool()
 
@@ -1315,12 +1319,67 @@ def media_pool(
     elif action == "append_to_timeline":
         if err:
             return err
-        # Append clips from current folder to the current timeline
+
+        # ── Multi-clip trim via clip_specs JSON ──────────────────
+        if clip_specs is not None:
+            import json as _json
+            try:
+                specs = _json.loads(clip_specs)
+            except _json.JSONDecodeError as e:
+                return _err(f"clip_specs ist kein gültiges JSON: {e}")
+
+            current = mp.GetCurrentFolder()
+            all_clips = current.GetClipList() if current else []
+            clip_by_name = {c.GetName(): c for c in all_clips}
+
+            clip_infos = []
+            resolved = []
+            for spec in specs:
+                name = spec.get("name")
+                if not name:
+                    return _err(f"Jeder clip_specs-Eintrag benötigt 'name'. Ungültig: {spec}")
+                clip = clip_by_name.get(name)
+                if clip is None:
+                    return _err(f"Clip '{name}' nicht gefunden. Verfügbar: {list(clip_by_name.keys())}")
+
+                # Resolve fps: per-spec > auto-detect
+                clip_fps = spec.get("fps")
+                if clip_fps is None:
+                    try:
+                        fps_str = clip.GetClipProperty("FPS")
+                        clip_fps = float(fps_str) if fps_str else 25.0
+                    except (ValueError, TypeError):
+                        clip_fps = 25.0
+
+                sf = spec.get("start_frame")
+                ef = spec.get("end_frame")
+                ss = spec.get("start_s")
+                ds = spec.get("duration_s")
+
+                if ss is not None and sf is None:
+                    sf = int(ss * clip_fps)
+                if ds is not None and ef is None:
+                    base = sf if sf is not None else 0
+                    ef = base + int(ds * clip_fps) - 1
+
+                info = {"mediaPoolItem": clip}
+                if sf is not None:
+                    info["startFrame"] = sf
+                if ef is not None:
+                    info["endFrame"] = ef
+                clip_infos.append(info)
+                resolved.append({"name": name, "start_frame": sf, "end_frame": ef, "fps_used": clip_fps})
+
+            result = mp.AppendToTimeline(clip_infos)
+            if result is None or (isinstance(result, list) and len(result) == 0):
+                return _err("AppendToTimeline fehlgeschlagen — ist eine Timeline aktiv?")
+            return _ok(appended=len(clip_infos), clips=resolved)
+
+        # ── Bisheriger Single-Clip-Pfad (rückwärts-kompatibel) ───
         current = mp.GetCurrentFolder()
         clips = current.GetClipList() if current else []
         if not clips:
             return _err("No clips in the current folder")
-        # If file_paths is given, use it as clip name filter
         if file_paths:
             selected = [c for c in clips if c.GetName() in file_paths]
             if not selected:
@@ -1328,7 +1387,6 @@ def media_pool(
         else:
             selected = clips
 
-        # Build clip infos — support trim via start_frame/end_frame or start_s/duration_s
         use_trim = (start_frame is not None or end_frame is not None or
                     start_s is not None or duration_s is not None)
 
@@ -1336,7 +1394,6 @@ def media_pool(
             if len(selected) != 1:
                 return _err("Trim (start_frame/end_frame/start_s/duration_s) requires exactly one clip — filter with file_paths")
             clip = selected[0]
-            # Detect native fps from clip properties
             clip_fps = fps
             if clip_fps is None:
                 fps_str = clip.GetClipProperty("FPS")
@@ -1345,7 +1402,6 @@ def media_pool(
                 except (ValueError, TypeError):
                     clip_fps = 25.0
 
-            # Convert seconds to frames if needed
             sf = start_frame
             ef = end_frame
             if start_s is not None and sf is None:
@@ -1371,7 +1427,6 @@ def media_pool(
                 clip_fps=clip_fps,
             )
         else:
-            # AppendToTimeline returns a list of TimelineItems or empty list on failure
             result = mp.AppendToTimeline(selected)
             if result is None or (isinstance(result, list) and len(result) == 0):
                 return _err("AppendToTimeline failed — check if a timeline is active")
@@ -1385,7 +1440,8 @@ def media_pool(
         return _err(
             f"Unknown action: {action}. Valid: list_folders, get_current_folder, set_current_folder, "
             "create_folder, delete_folder, list_clips, get_clip_info, import_media, "
-            "create_timeline_from_clips, get_root_folder, selected_clips, append_to_timeline (with optional start_frame/end_frame/start_s/duration_s trim)"
+            "create_timeline_from_clips, get_root_folder, selected_clips, "
+            "append_to_timeline (single-clip: start_frame/end_frame/start_s/duration_s; multi-clip: clip_specs JSON)"
         )
 
 
