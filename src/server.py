@@ -1717,6 +1717,7 @@ def color(
         import subprocess as _subprocess
         import tempfile as _tempfile
         import json as _json
+        import shutil as _shutil
 
         # Get source file path and timecode from current timeline item
         items = tl.GetItemListInTrack("video", 1)
@@ -1765,9 +1766,9 @@ def color(
         offset_sec = source_frame / fps
 
         # Extract frame with ffmpeg, analyze luma via signalstats filter
-        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
-        if not _os.path.exists(ffmpeg):
-            ffmpeg = "ffmpeg"
+        ffmpeg = _shutil.which("ffmpeg")
+        if not ffmpeg:
+            return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         # Find LUT for post-LUT Rec709 measurement
         LUT_ROOTS = [
@@ -1876,6 +1877,7 @@ def color(
         import math as _math
         import subprocess as _subprocess
         import tempfile as _tempfile
+        import shutil as _shutil
 
         items = tl.GetItemListInTrack("video", 1)
         if not items:
@@ -1897,9 +1899,9 @@ def color(
         tl_start_tc = tl.GetStartTimecode() if hasattr(tl, "GetStartTimecode") else "01:00:00:00"
         tl_start_frame = _tc_to_frames_inner(tl_start_tc, fps)
 
-        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
-        if not _os.path.exists(ffmpeg):
-            ffmpeg = "ffmpeg"
+        ffmpeg = _shutil.which("ffmpeg")
+        if not ffmpeg:
+            return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         TARGET_LUMA = 0.38
 
@@ -2062,6 +2064,7 @@ def color(
         import math as _math
         import subprocess as _subprocess
         import tempfile as _tempfile
+        import shutil as _shutil
 
         items = tl.GetItemListInTrack("video", 1)
         if not items:
@@ -2078,9 +2081,9 @@ def color(
             h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
             return int((h * 3600 + m * 60 + s) * fps + f)
 
-        ffmpeg = "/Users/Alex/.local/bin/ffmpeg"
-        if not _os.path.exists(ffmpeg):
-            ffmpeg = "ffmpeg"
+        ffmpeg = _shutil.which("ffmpeg")
+        if not ffmpeg:
+            return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         TARGET_LUMA = float(node_index) if node_index and str(node_index).replace(".", "").isdigit() else 0.38
 
@@ -2250,8 +2253,11 @@ def analyze_media(
     if not os.path.exists(file_path):
         return _err(f"File not found: {file_path}")
 
-    ffprobe = shutil.which("ffprobe") or "/Users/Alex/.local/bin/ffprobe"
-    ffmpeg = shutil.which("ffmpeg") or "/Users/Alex/.local/bin/ffmpeg"
+    ffprobe = shutil.which("ffprobe")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffprobe or not ffmpeg:
+        missing = ", ".join(t for t, v in [("ffprobe", ffprobe), ("ffmpeg", ffmpeg)] if not v)
+        return _err(f"{missing} not found in PATH. Install via: brew install ffmpeg")
 
     result: dict = {}
 
