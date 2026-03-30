@@ -161,3 +161,67 @@ def test_add_transition_template_missing_returns_error():
 
     assert result["success"] is False
     assert "install_templates" in result["error"]
+
+
+def test_create_3d_text_missing_text_returns_error():
+    import server
+    from unittest.mock import MagicMock, patch
+    mock_tl = MagicMock()
+    mock_proj = MagicMock()
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        result = server.fx(action="create_3d_text", clip_index=1)
+    assert result["success"] is False
+    assert "text" in result["error"]
+
+
+def test_parse_hex_color_white():
+    from server import _parse_hex_color
+    r, g, b = _parse_hex_color("#FFFFFF")
+    assert r == 1.0 and g == 1.0 and b == 1.0
+
+
+def test_parse_hex_color_red():
+    from server import _parse_hex_color
+    r, g, b = _parse_hex_color("#FF0000")
+    assert r == 1.0 and g == 0.0 and b == 0.0
+
+
+def test_parse_hex_color_without_hash():
+    from server import _parse_hex_color
+    r, g, b = _parse_hex_color("00FF00")
+    assert r == 0.0 and g == 1.0 and b == 0.0
+
+
+def test_create_3d_text_builds_comp(monkeypatch):
+    import server
+    from unittest.mock import MagicMock, patch
+
+    # Mock timeline item
+    mock_item = MagicMock()
+    mock_item.GetName.return_value = "Clip_001.MP4"
+
+    mock_tl = MagicMock()
+    mock_tl.GetItemListInTrack.return_value = [mock_item]
+    mock_proj = MagicMock()
+
+    # Mock Fusion comp
+    mock_tool = MagicMock()
+    mock_tool.FindMainInput.return_value = MagicMock()
+    mock_tool.FindMainOutput.return_value = MagicMock()
+    mock_tool.FindInput.return_value = MagicMock()
+
+    mock_comp = MagicMock()
+    mock_comp.AddTool.return_value = mock_tool
+    mock_item.GetFusionCompByIndex.return_value = None
+    mock_item.AddFusionComp.return_value = mock_comp
+
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        result = server.fx(action="create_3d_text", text="SIZILIEN", clip_index=1)
+
+    # Should have tried to add multiple Fusion nodes
+    assert mock_comp.AddTool.call_count >= 5
+    # Text3D node should be one of them
+    tool_names = [c[0][0] for c in mock_comp.AddTool.call_args_list]
+    assert "Text3D" in tool_names
+    assert "CameraTracker" in tool_names
+    assert "Renderer3D" in tool_names

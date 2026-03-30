@@ -3302,6 +3302,52 @@ def _fx_add_transition(
     )
 
 
+def _parse_hex_color(hex_color: str) -> tuple[float, float, float]:
+    """Parse '#RRGGBB' or 'RRGGBB' to (r, g, b) floats in range 0.0–1.0."""
+    h = hex_color.lstrip("#")
+    r = int(h[0:2], 16) / 255.0
+    g = int(h[2:4], 16) / 255.0
+    b = int(h[4:6], 16) / 255.0
+    return r, g, b
+
+
+def _trigger_camera_analysis(tracker) -> bool:
+    """Attempt to trigger CameraTracker analysis headlessly.
+
+    Returns True if analysis was triggered, False if manual click is needed.
+    """
+    try:
+        if hasattr(tracker, "Analyze"):
+            tracker.Analyze()
+            return True
+        tracker.SetInput("Analyze", 1)
+        return True
+    except Exception as e:
+        logger.warning("CameraTracker auto-analysis failed: %s", e)
+        return False
+
+
+def _connect(tool_b, input_name: str, tool_a, output_name: str) -> None:
+    """Connect tool_a.output_name → tool_b.input_name. Silently skips on failure."""
+    try:
+        inp = tool_b.FindInput(input_name)
+        out = tool_a.FindOutput(output_name) or tool_a.FindMainOutput(1)
+        if inp and out:
+            inp.ConnectTo(out)
+    except Exception as e:
+        logger.debug("_connect %s.%s → %s.%s failed: %s", tool_b, input_name, tool_a, output_name, e)
+
+
+def _set_input(tool, input_name: str, value) -> None:
+    """Set a named input value on a Fusion tool. Silently skips on failure."""
+    try:
+        inp = tool.FindInput(input_name)
+        if inp:
+            inp[0] = value
+    except Exception as e:
+        logger.debug("_set_input %s.%s = %s failed: %s", tool, input_name, value, e)
+
+
 def _fx_create_3d_text(
     text: str | None,
     clip_index: int | None,
@@ -3312,7 +3358,100 @@ def _fx_create_3d_text(
     position_x: float | None,
     position_y: float | None,
 ) -> dict:
-    return _err("Not yet implemented")
+    """Build a complete Fusion 3D camera-tracked text comp on the specified clip."""
+    if not text:
+        return _err("'text' is required")
+    if not clip_index:
+        return _err("'clip_index' is required (1-based index on video track 1)")
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    items = list(tl.GetItemListInTrack("video", 1))
+    if not items or clip_index < 1 or clip_index > len(items):
+        return _err(f"clip_index {clip_index} out of range (1\u2013{len(items) if items else 0})")
+
+    item = items[clip_index - 1]
+
+    comp = item.GetFusionCompByIndex(1)
+    if comp is None:
+        comp = item.AddFusionComp()
+    if comp is None:
+        return _err(f"Could not create Fusion comp on clip '{item.GetName()}'")
+
+    font = font or "Helvetica Neue"
+    size = size if size is not None else 0.3
+    color_hex = color or "#FFFFFF"
+    extrusion = extrusion if extrusion is not None else 0.05
+    pos_x = position_x if position_x is not None else 0.0
+    pos_y = position_y if position_y is not None else 0.0
+
+    try:
+        r, g, b = _parse_hex_color(color_hex)
+    except (ValueError, IndexError):
+        return _err(f"Invalid color '{color_hex}'. Use hex format like '#FF8800'")
+
+    comp.Lock()
+    try:
+        media_in  = comp.AddTool("MediaIn",       -6,  0)
+        tracker   = comp.AddTool("CameraTracker",   0,  0)
+        text3d    = comp.AddTool("Text3D",           0,  3)
+        transform = comp.AddTool("Transform3D",      3,  3)
+        merge3d   = comp.AddTool("Merge3D",          3,  0)
+        renderer  = comp.AddTool("Renderer3D",       6,  0)
+        merge2d   = comp.AddTool("Merge",            9,  0)
+        media_out = comp.AddTool("MediaOut",         12, 0)
+
+        _connect(tracker,  "Input",       media_in,  "Output")
+        _connect(merge2d,  "Background",  tracker,   "Output")
+        _connect(transform, "SceneInput", text3d,    "Output")
+        _connect(merge3d,  "SceneInput1", transform, "Output")
+        _connect(merge3d,  "SceneInput2", tracker,   "Camera")
+        _connect(renderer, "SceneInput",  merge3d,   "Output")
+        _connect(renderer, "Camera",      tracker,   "Camera")
+        _connect(merge2d,  "Foreground",  renderer,  "Output")
+        _connect(media_out, "Input",      merge2d,   "Output")
+
+        _set_input(text3d,    "StyledText",     text)
+        _set_input(text3d,    "Font",           font)
+        _set_input(text3d,    "Size",           size)
+        _set_input(text3d,    "ExtrudeDepth",   extrusion)
+        _set_input(transform, "Translation.X",  pos_x)
+        _set_input(transform, "Translation.Y",  pos_y)
+
+        material = comp.AddTool("PhongMaterial", 0, 5)
+        _set_input(material, "DiffuseColorR", r)
+        _set_input(material, "DiffuseColorG", g)
+        _set_input(material, "DiffuseColorB", b)
+        _connect(text3d, "MaterialInput", material, "Output")
+
+    finally:
+        comp.Unlock()
+
+    analysis_ok = _trigger_camera_analysis(tracker)
+    clip_name = item.GetName()
+
+    if analysis_ok:
+        return _ok(
+            status="complete",
+            text=text,
+            clip=clip_name,
+            font=font,
+            color=color_hex,
+            message=f"3D-Text '{text}' mit Camera-Tracking auf '{clip_name}' erstellt",
+        )
+    return _ok(
+        status="partial",
+        text=text,
+        clip=clip_name,
+        font=font,
+        color=color_hex,
+        message=(
+            f"Fusion-Comp auf '{clip_name}' aufgebaut. "
+            "Öffne Fusion und klicke 'Track Forward' auf dem CameraTracker-Node."
+        ),
+    )
 
 
 def _setup_pid_file() -> None:
