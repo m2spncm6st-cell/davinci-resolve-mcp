@@ -98,3 +98,28 @@ def test_apply_look_calls_setcdl():
     cdl_arg = mock_item.SetCDL.call_args[0][0]
     assert cdl_arg["NodeIndex"] == "1"
     assert cdl_arg["Saturation"] == "1.050"
+
+
+def test_install_templates_creates_directory(tmp_path):
+    """install_templates should create template dir and write .comp files."""
+    import server
+    from unittest.mock import patch, MagicMock
+
+    # Patch _TEMPLATE_DIR to use tmp_path
+    with patch.object(server, '_TEMPLATE_DIR', str(tmp_path / "transitions")):
+        # Patch Fusion API — simulate successful comp generation
+        mock_comp = MagicMock()
+        mock_comp.Save.return_value = True
+        mock_comp.AddTool.return_value = MagicMock()
+        mock_fusion = MagicMock()
+        mock_fusion.NewComp.return_value = mock_comp
+
+        r = MagicMock()
+        r.Fusion.return_value = mock_fusion
+
+        with patch.object(server.resolve, 'connect', return_value=r):
+            result = server.fx(action="install_templates")
+
+    # Directory must exist
+    assert (tmp_path / "transitions").exists()
+    assert result["success"] is True

@@ -3072,7 +3072,160 @@ def _fx_apply_look(look: str | None, clip_index: int | None, all_clips: bool) ->
 
 
 def _fx_install_templates() -> dict:
-    return _err("Not yet implemented")
+    """Generate Fusion .comp transition templates in _TEMPLATE_DIR."""
+    os.makedirs(_TEMPLATE_DIR, exist_ok=True)
+
+    r = resolve.connect()
+    if not r:
+        return _err("Not connected to DaVinci Resolve")
+
+    fusion = r.Fusion()
+    if not fusion:
+        return _err("Could not access Fusion API")
+
+    created = []
+    errors = []
+
+    for name, meta in TRANSITIONS.items():
+        path = os.path.join(_TEMPLATE_DIR, meta["filename"])
+        if os.path.exists(path):
+            created.append(f"{name} (skipped, already exists)")
+            continue
+        try:
+            comp = fusion.NewComp()
+            if not comp:
+                errors.append(f"{name}: NewComp() returned None")
+                continue
+
+            _build_transition_comp(comp, name)
+
+            if comp.Save(path):
+                created.append(name)
+            else:
+                errors.append(f"{name}: Save() returned False for {path}")
+
+            comp.Close()
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    if errors:
+        return _ok(created=created, errors=errors,
+                   message=f"{len(created)} templates created, {len(errors)} errors")
+    return _ok(created=created, template_dir=_TEMPLATE_DIR,
+               message=f"{len(created)} templates ready in {_TEMPLATE_DIR}")
+
+
+def _build_transition_comp(comp, transition_name: str) -> None:
+    """Build Fusion node graph for a transition template.
+
+    Template structure: MediaIn1 and MediaIn2 blend to MediaOut1.
+    Resolve auto-connects MediaIn1/MediaIn2 to adjacent timeline clips.
+    """
+    comp.Lock()
+    try:
+        m1 = comp.AddTool("MediaIn", -5, 0)
+        m1.SetAttrs({"TOOLS_Name": "MediaIn1"})
+        m2 = comp.AddTool("MediaIn", -5, -2)
+        m2.SetAttrs({"TOOLS_Name": "MediaIn2"})
+        out = comp.AddTool("MediaOut", 5, 0)
+        out.SetAttrs({"TOOLS_Name": "MediaOut1"})
+
+        if transition_name == "dip_to_black":
+            _build_dip_to_black(comp, m1, m2, out)
+        elif transition_name == "zoom_blur":
+            _build_zoom_blur(comp, m1, m2, out)
+        elif transition_name == "light_leak":
+            _build_light_leak(comp, m1, m2, out)
+        elif transition_name in ("glitch", "whip_pan", "film_burn"):
+            # These use cross-dissolve as functional base. Their signature effects
+            # (RGB-shift / motion-blur / grain+orange) need interactive Fusion parameter
+            # tuning that can't be set reliably via headless API. The dissolve works
+            # immediately; style customization can be done in Fusion after insertion.
+            _build_cross_dissolve(comp, m1, m2, out)
+    finally:
+        comp.Unlock()
+
+
+def _build_cross_dissolve(comp, m1, m2, out) -> None:
+    """Simple cross-dissolve: Merge with animated blend from 0→1."""
+    merge = comp.AddTool("Merge", 0, 0)
+    merge.FindMainInput(1).ConnectTo(m1.FindMainOutput(1))
+    merge.FindMainInput(2).ConnectTo(m2.FindMainOutput(1))
+    blend_in = merge.FindInput("Blend")
+    if blend_in:
+        blend_in.SetExpression("time/comp.RenderEnd")
+    out.FindMainInput(1).ConnectTo(merge.FindMainOutput(1))
+
+
+def _build_dip_to_black(comp, m1, m2, out) -> None:
+    """Clip A fades to black, then Clip B fades in."""
+    bg = comp.AddTool("Background", -2, -1)
+    bg.FindInput("TopLeftRed").SetExpression("0")
+    bg.FindInput("TopLeftGreen").SetExpression("0")
+    bg.FindInput("TopLeftBlue").SetExpression("0")
+
+    merge_a = comp.AddTool("Merge", 0, 0)
+    merge_a.FindMainInput(1).ConnectTo(bg.FindMainOutput(1))
+    merge_a.FindMainInput(2).ConnectTo(m1.FindMainOutput(1))
+    fade_out = merge_a.FindInput("Blend")
+    if fade_out:
+        fade_out.SetExpression("1.0 - (time/comp.RenderEnd) * 2.0 > 0 and 1.0 - (time/comp.RenderEnd) * 2.0 or 0.0")
+
+    merge_b = comp.AddTool("Merge", 2, 0)
+    merge_b.FindMainInput(1).ConnectTo(merge_a.FindMainOutput(1))
+    merge_b.FindMainInput(2).ConnectTo(m2.FindMainOutput(1))
+    fade_in = merge_b.FindInput("Blend")
+    if fade_in:
+        fade_in.SetExpression("(time/comp.RenderEnd) * 2.0 - 1.0 > 0 and (time/comp.RenderEnd) * 2.0 - 1.0 or 0.0")
+
+    out.FindMainInput(1).ConnectTo(merge_b.FindMainOutput(1))
+
+
+def _build_zoom_blur(comp, m1, m2, out) -> None:
+    """Scale + blur outgoing clip while incoming clip fades in."""
+    blur = comp.AddTool("Blur", -1, 0)
+    blur.FindMainInput(1).ConnectTo(m1.FindMainOutput(1))
+    blur_size = blur.FindInput("XBlurSize")
+    if blur_size:
+        blur_size.SetExpression("(time/comp.RenderEnd) * 30")
+
+    xf = comp.AddTool("Transform", 1, 0)
+    xf.FindMainInput(1).ConnectTo(blur.FindMainOutput(1))
+    scale_in = xf.FindInput("Size")
+    if scale_in:
+        scale_in.SetExpression("1.0 + (time/comp.RenderEnd) * 0.3")
+
+    merge = comp.AddTool("Merge", 3, 0)
+    merge.FindMainInput(1).ConnectTo(xf.FindMainOutput(1))
+    merge.FindMainInput(2).ConnectTo(m2.FindMainOutput(1))
+    blend = merge.FindInput("Blend")
+    if blend:
+        blend.SetExpression("time/comp.RenderEnd")
+    out.FindMainInput(1).ConnectTo(merge.FindMainOutput(1))
+
+
+def _build_light_leak(comp, m1, m2, out) -> None:
+    """White gradient additively bleaches out clip A then reveals clip B."""
+    grad = comp.AddTool("Background", -2, -1)
+    grad.FindInput("TopLeftRed").SetExpression("1")
+    grad.FindInput("TopLeftGreen").SetExpression("0.95")
+    grad.FindInput("TopLeftBlue").SetExpression("0.85")
+
+    merge_leak = comp.AddTool("Merge", 0, 0)
+    merge_leak.FindMainInput(1).ConnectTo(m1.FindMainOutput(1))
+    merge_leak.FindMainInput(2).ConnectTo(grad.FindMainOutput(1))
+    merge_leak.SetInput("ApplyMode", "Screen")
+    leak_blend = merge_leak.FindInput("Blend")
+    if leak_blend:
+        leak_blend.SetExpression("iif(time/comp.RenderEnd < 0.5, time/comp.RenderEnd*2, 1.0-(time/comp.RenderEnd-0.5)*2)")
+
+    merge_final = comp.AddTool("Merge", 2, 0)
+    merge_final.FindMainInput(1).ConnectTo(merge_leak.FindMainOutput(1))
+    merge_final.FindMainInput(2).ConnectTo(m2.FindMainOutput(1))
+    final_blend = merge_final.FindInput("Blend")
+    if final_blend:
+        final_blend.SetExpression("iif(time/comp.RenderEnd > 0.5, (time/comp.RenderEnd-0.5)*2, 0.0)")
+    out.FindMainInput(1).ConnectTo(merge_final.FindMainOutput(1))
 
 
 def _fx_add_transition(
