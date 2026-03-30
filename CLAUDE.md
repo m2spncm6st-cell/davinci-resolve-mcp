@@ -22,10 +22,11 @@ Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## MCP-Registrierung
 ```bash
-cd ~/Projects/davinci-resolve-mcp
-claude mcp add davinci-resolve --scope project \
+claude mcp add davinci-resolve --scope user \
   -e PYTHONPATH="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules" \
-  -- /Users/Alex/.pyenv/versions/3.12.11/bin/python3 src/server.py
+  -e RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting" \
+  -e RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so" \
+  -- /Users/Alex/.pyenv/versions/3.12.11/bin/python3 /Users/Alex/Projects/davinci-resolve-mcp/src/server.py
 ```
 
 ## Architektur
