@@ -496,3 +496,36 @@ class TestFairlightVoiceIsolationWithResolve:
         result = self.fairlight(action="get_audio_mapping")
         assert result["success"] is False
         assert "track_index" in result["error"]
+
+
+# ── trim helper logic tests ───────────────────────────────────────
+
+
+def _seconds_to_frames(seconds, fps):
+    """Replica of the conversion logic used in timeline_item trim."""
+    return int(seconds * fps)
+
+
+def _right_offset(end_frame, total_frames):
+    """Replica of SetRightOffset calculation."""
+    return total_frames - end_frame - 1
+
+
+def test_trim_start_s_to_frame():
+    assert _seconds_to_frames(2.0, 25.0) == 50
+    assert _seconds_to_frames(0.0, 25.0) == 0
+    assert _seconds_to_frames(1.5, 100.0) == 150
+
+
+def test_trim_end_s_to_frame():
+    assert _seconds_to_frames(10.0, 25.0) == 250
+    assert _seconds_to_frames(3.0, 50.0) == 150
+
+
+def test_trim_right_offset_calculation():
+    # clip with 100 total frames, end_frame=79 → right_offset=20
+    assert _right_offset(79, 100) == 20
+    # end_frame = last frame → offset=0
+    assert _right_offset(99, 100) == 0
+    # end_frame = 0 → offset = total-1
+    assert _right_offset(0, 100) == 99
