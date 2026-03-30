@@ -2816,6 +2816,26 @@ def fairlight(
         )
 
 
+def _setup_pid_file() -> None:
+    """Write PID file and warn if another instance appears to be running."""
+    import atexit
+    pid_file = os.path.expanduser("~/.resolve-mcp.pid")
+    if os.path.exists(pid_file):
+        try:
+            old_pid = int(open(pid_file).read().strip())
+            os.kill(old_pid, 0)  # raises OSError if process is gone
+            logger.warning(
+                "Another server instance may be running (PID %d). "
+                "If not, delete %s and restart.",
+                old_pid, pid_file,
+            )
+        except (OSError, ValueError):
+            pass  # stale PID file — safe to overwrite
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
+    atexit.register(lambda: os.unlink(pid_file) if os.path.exists(pid_file) else None)
+
+
 if __name__ == "__main__":
     log_file = os.path.expanduser("~/.resolve-mcp.log")
     logging.basicConfig(
@@ -2826,5 +2846,6 @@ if __name__ == "__main__":
             logging.StreamHandler(sys.stderr),
         ],
     )
+    _setup_pid_file()
     logger.info("DaVinci Resolve MCP Server starting (PID %d)", os.getpid())
     mcp.run()
