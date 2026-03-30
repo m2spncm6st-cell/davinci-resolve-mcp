@@ -161,8 +161,7 @@ def project(action: str, name: str | None = None, settings: dict | None = None) 
     elif action == "save":
         if err:
             return err
-        pm_obj = resolve.connect().GetProjectManager()
-        result = pm_obj.SaveProject()
+        result = pm.SaveProject()
         return _ok(saved=result)
 
     elif action == "create":
@@ -181,8 +180,7 @@ def project(action: str, name: str | None = None, settings: dict | None = None) 
     elif action == "close":
         if err:
             return err
-        pm_obj = resolve.connect().GetProjectManager()
-        result = pm_obj.CloseProject(proj)
+        result = pm.CloseProject(proj)
         return _ok(closed=result)
 
     elif action == "get_settings":
@@ -2020,20 +2018,17 @@ def color(
         except Exception:
             pass
 
-        out_png = _os.path.join(_tempfile.gettempdir(), "resolve_autograde_frame.png")
-        applied = []
-
+        # Phase 1: Collect clip metadata via Resolve API (sequential)
+        clip_meta = []
         for idx, item in enumerate(items, start=1):
             media = item.GetMediaPoolItem()
             if not media:
-                applied.append({"clip": idx, "error": "no MediaPoolItem"})
+                clip_meta.append({"clip": idx, "error": "no MediaPoolItem", "_item": item})
                 continue
             clip_path = media.GetClipProperty("File Path")
             if not clip_path or not _os.path.exists(clip_path):
-                applied.append({"clip": idx, "error": f"file not found: {clip_path}"})
+                clip_meta.append({"clip": idx, "error": f"file not found: {clip_path}", "_item": item})
                 continue
-
-            # Correct source offset using in-point trim
             tl_start = item.GetStart()
             tl_end   = item.GetEnd()
             tl_mid   = (tl_start + tl_end) // 2
@@ -2042,10 +2037,7 @@ def color(
                 left_offset = int(item.GetLeftOffset())
             except Exception:
                 pass
-            source_frame = left_offset + (tl_mid - tl_start)
-            offset_sec = max(0.0, source_frame / fps)
-
-            # Per-clip LUT
+            offset_sec = max(0.0, (left_offset + tl_mid - tl_start) / fps)
             lut_path = applied_lut
             if lut_path is None:
                 try:
@@ -2053,19 +2045,26 @@ def color(
                     lut_path = find_lut(lut_rel)
                 except Exception:
                     pass
+            clip_meta.append({
+                "clip": idx, "_item": item, "_path": clip_path,
+                "_offset": offset_sec, "_lut": lut_path, "_mid": tl_mid,
+            })
 
-            # Extract + measure frame
-            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
-            if lut_path:
-                safe = lut_path.replace("\\", "/").replace(":", "\\:")
+        # Phase 2: Measure frames in parallel (ffmpeg + numpy)
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _measure_ag(meta):
+            if "error" in meta:
+                return meta
+            out_png = _os.path.join(_tempfile.gettempdir(), f"resolve_ag_{meta['clip']}.png")
+            cmd = [ffmpeg, "-y", "-ss", str(meta["_offset"]), "-i", meta["_path"]]
+            if meta["_lut"]:
+                safe = meta["_lut"].replace("\\", "/").replace(":", "\\:")
                 cmd += ["-vf", f"lut3d='{safe}'"]
             cmd += ["-vframes", "1", "-q:v", "2", out_png]
             _subprocess.run(cmd, capture_output=True, timeout=15)
-
             if not _os.path.exists(out_png):
-                applied.append({"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"})
-                continue
-
+                return {**meta, "error": f"ffmpeg failed at {meta['_offset']:.2f}s"}
             mean_luma = 0.0
             crop_pct = 0.0
             try:
@@ -2084,16 +2083,30 @@ def color(
                     _os.remove(out_png)
                 except Exception:
                     pass
+            return {**meta, "_mean_luma": mean_luma, "_crop_pct": crop_pct}
 
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            measured = list(ex.map(_measure_ag, clip_meta))
+
+        # Phase 3: Apply CDL via Resolve API (sequential — writes must not interleave)
+        applied = []
+        for meta in measured:
+            if "error" in meta:
+                applied.append({"clip": meta["clip"], "error": meta["error"]})
+                continue
+            mean_luma = meta["_mean_luma"]
+            crop_pct = meta["_crop_pct"]
             if 0.005 < mean_luma < 0.995:
                 power = round(_math.log(TARGET_LUMA) / _math.log(mean_luma), 3)
                 power = max(0.50, min(1.80, power))
             else:
                 power = 1.0
-
-            # Navigate playhead to this clip and apply CDL
-            tl.SetCurrentTimecode(f"{int(tl_mid // (fps * 3600)):02d}:{int((tl_mid // fps % 3600) // 60):02d}:{int(tl_mid // fps % 60):02d}:{int(tl_mid % fps):02d}")
-            cdl_str = f"1.0 1.0 1.0;0.0 0.0 0.0;{power:.3f} {power:.3f} {power:.3f};1.0"
+            tl_mid = meta["_mid"]
+            tl.SetCurrentTimecode(
+                f"{int(tl_mid // (fps * 3600)):02d}:{int((tl_mid // fps % 3600) // 60):02d}"
+                f":{int(tl_mid // fps % 60):02d}:{int(tl_mid % fps):02d}"
+            )
+            item = meta["_item"]
             cdl_ok = item.SetCDL({
                 "NodeIndex": "1",
                 "Slope": "1.0 1.0 1.0",
@@ -2103,7 +2116,7 @@ def color(
             }) if hasattr(item, "SetCDL") else False
 
             applied.append({
-                "clip": idx,
+                "clip": meta["clip"],
                 "mean_luma_before": round(mean_luma, 3),
                 "power_applied": f"{power:.3f} {power:.3f} {power:.3f}",
                 "cdl_set": bool(cdl_ok),
