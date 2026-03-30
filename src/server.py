@@ -3058,7 +3058,7 @@ def _fx_apply_look(look: str | None, clip_index: int | None, all_clips: bool) ->
     if clip_index is not None:
         items = tl.GetItemListInTrack("video", 1)
         if not items or clip_index < 1 or clip_index > len(items):
-            return _err(f"clip_index {clip_index} out of range (1\u20133{len(items) if items else 0})")
+            return _err(f"clip_index {clip_index} out of range (1\u2013{len(items) if items else 0})")
         item = list(items)[clip_index - 1]
     else:
         item = tl.GetCurrentVideoItem()
