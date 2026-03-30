@@ -123,3 +123,41 @@ def test_install_templates_creates_directory(tmp_path):
     # Directory must exist
     assert (tmp_path / "transitions").exists()
     assert result["success"] is True
+
+
+def test_add_transition_missing_params_returns_error():
+    import server
+    result = server.fx(action="add_transition", transition="glitch")
+    assert result["success"] is False
+    assert "track_index" in result["error"]
+
+
+def test_add_transition_unknown_transition_returns_error():
+    import server
+    from unittest.mock import MagicMock, patch
+
+    mock_tl = MagicMock()
+    mock_proj = MagicMock()
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        result = server.fx(action="add_transition", transition="nonexistent",
+                          track_index=1, item_index=2, duration=24)
+    assert result["success"] is False
+    assert "nonexistent" in result["error"]
+
+
+def test_add_transition_template_missing_returns_error():
+    import server
+    from unittest.mock import MagicMock, patch
+
+    items = [MagicMock(), MagicMock(), MagicMock()]
+    mock_tl = MagicMock()
+    mock_tl.GetItemListInTrack.return_value = items
+    mock_proj = MagicMock()
+
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        with patch.object(server, '_TEMPLATE_DIR', '/nonexistent/path'):
+            result = server.fx(action="add_transition", transition="glitch",
+                              track_index=1, item_index=1, duration=24)
+
+    assert result["success"] is False
+    assert "install_templates" in result["error"]

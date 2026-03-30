@@ -3233,7 +3233,70 @@ def _fx_add_transition(
     item_index: int | None,
     duration: int | None,
 ) -> dict:
-    return _err("Not yet implemented")
+    """Insert a Fusion transition .comp between item_index and item_index+1."""
+    if not all([transition, track_index, item_index, duration]):
+        return _err("'transition', 'track_index', 'item_index', and 'duration' are all required")
+    if transition not in TRANSITIONS:
+        valid = ", ".join(TRANSITIONS.keys())
+        return _err(f"Unknown transition '{transition}'. Valid: {valid}")
+
+    template_path = os.path.join(_TEMPLATE_DIR, TRANSITIONS[transition]["filename"])
+    if not os.path.exists(template_path):
+        return _err(
+            f"Template '{template_path}' not found. "
+            "Run fx(action='install_templates') first."
+        )
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    items = list(tl.GetItemListInTrack("video", track_index))
+    if not items:
+        return _err(f"No items on video track {track_index}")
+    if item_index < 1 or item_index >= len(items):
+        return _err(
+            f"item_index {item_index} out of range. "
+            f"Must be 1\u2013{len(items)-1} (transition goes between item and item+1)"
+        )
+
+    clip_a = items[item_index - 1]
+    clip_b = items[item_index]
+
+    # Position playhead at the cut point between clip A and clip B
+    fps = proj.GetSetting("timelineFrameRate")
+    try:
+        fps = float(fps)
+    except (TypeError, ValueError):
+        fps = 25.0
+
+    cut_frame = clip_a.GetEnd()
+    tc = (
+        f"{int(cut_frame / (fps * 3600)):02d}:"
+        f"{int((cut_frame // fps % 3600) // 60):02d}:"
+        f"{int(cut_frame // fps % 60):02d}:"
+        f"{int(cut_frame % fps):02d}"
+    )
+    tl.SetCurrentTimecode(tc)
+
+    # Insert Fusion composition at playhead (between the two clips)
+    fusion_item = tl.InsertFusionCompositionIntoTimeline()
+    if not fusion_item:
+        return _err("InsertFusionCompositionIntoTimeline() returned None. "
+                    "Ensure playhead is at a cut point with no gap.")
+
+    # Import the transition template into the new Fusion clip
+    imported = fusion_item.ImportFusionComp(template_path)
+    if not imported:
+        return _err(f"ImportFusionComp() failed for '{template_path}'")
+
+    return _ok(
+        transition=transition,
+        track_index=track_index,
+        between_clips=[clip_a.GetName(), clip_b.GetName()],
+        duration_frames=duration,
+        template=template_path,
+    )
 
 
 def _fx_create_3d_text(
