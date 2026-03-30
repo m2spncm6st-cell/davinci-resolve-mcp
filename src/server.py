@@ -1952,43 +1952,6 @@ def color(
             source_frame = left_offset + clip_frames_from_head
             return max(0.0, source_frame / fps)
 
-        def _measure_frame(clip_path, offset_sec, lut_path):
-            """Extract one frame with ffmpeg, optionally apply LUT, return luma stats dict."""
-            cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
-            if lut_path:
-                safe = lut_path.replace("\\", "/").replace(":", "\\:")
-                cmd += ["-vf", f"lut3d='{safe}'"]
-            cmd += ["-vframes", "1", "-q:v", "2", out_png]
-            _subprocess.run(cmd, capture_output=True, timeout=15)
-            if not _os.path.exists(out_png):
-                return None
-
-            import numpy as np
-            from PIL import Image
-            img = Image.open(out_png).convert("RGB")
-            if img.width > 1920:
-                img = img.resize((1920, 1080), Image.BILINEAR)
-            arr = np.array(img, dtype=np.float32) / 255.0
-            r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-            luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
-            try:
-                _os.remove(out_png)
-            except Exception:
-                pass
-            return {
-                "mean": float(_np_mean := __import__("numpy").mean(luma)),
-                "p05":  float(__import__("numpy").percentile(luma, 5)),
-                "p95":  float(__import__("numpy").percentile(luma, 95)),
-            }
-
-        def _luma_stats(arr_luma):
-            import numpy as np
-            return {
-                "mean": float(np.mean(arr_luma)),
-                "p05":  float(np.percentile(arr_luma, 5)),
-                "p95":  float(np.percentile(arr_luma, 95)),
-            }
-
         def _measure_frame_v2(clip_path, offset_sec, lut_path):
             cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
             if lut_path:
@@ -2190,6 +2153,7 @@ def color(
                 applied.append({"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"})
                 continue
 
+            mean_luma = 0.0
             crop_pct = 0.0
             try:
                 import numpy as np
