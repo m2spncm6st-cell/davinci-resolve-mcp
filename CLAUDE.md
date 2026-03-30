@@ -46,11 +46,11 @@ Verbindungsstatus, Version, Projekt, Page
 ### resolve_control(action, page)
 status, get_page, set_page, get_version
 
-### project(action, name)
-list, get_current, open, save, create, close
+### project(action, name, settings)
+list, get_current, open, save, create, close, get_settings, set_settings
 
 ### timeline(action, name, index, track_type, track_index, export_format, file_path)
-list, get_current, set_current, create, get_tracks, get_items, get_markers,
+list, get_current, set_current, create, delete, get_tracks, get_items, get_markers,
 add_marker, delete_markers, get_settings, duplicate,
 add_track, delete_track, export, insert_title, insert_generator, delete_clips,
 get_marker_clips, split_at_markers, delete_between_markers, rename_clips_from_markers,
@@ -61,12 +61,12 @@ get_current, get_properties, set_property, get_info, set_clip_color,
 clear_clip_color, set_enabled, get_source_info,
 get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take,
 get_cache, set_cache, update_sidecar, stabilize,
-set_cdl, copy_grades, smart_reframe
+set_cdl, copy_grades, smart_reframe, set_speed
 
-### media_pool(action, folder_name, file_paths, timeline_name)
+### media_pool(action, folder_name, file_paths, timeline_name, start_frame, end_frame, duration_s, start_s, fps)
 list_folders, get_current_folder, set_current_folder, create_folder, delete_folder,
 list_clips, get_clip_info, import_media, create_timeline_from_clips, get_root_folder,
-selected_clips, append_to_timeline
+selected_clips, append_to_timeline (trim: start_frame/end_frame or start_s/duration_s)
 
 ### color(action, node_index, lut_path, item_index, version_name, version_type)
 get_current_item, get_node_graph, get_nodes, get_lut, set_lut,
@@ -104,6 +104,7 @@ list_types, get, add, remove
 - [x] Phase 9: Full Stack API-Erweiterung (v1.5.0)
 - [x] Phase 10: Color Grading & Bugfixes (v1.6.0)
 - [x] Phase 11: Cinematic FPV Edit — Zeb Gardner D-Log M Workflow (v1.7.0)
+- [x] Phase 12: Sizilien Erinnerungsvideo — MCP Lücken geschlossen (v1.8.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -117,10 +118,12 @@ list_types, get, add, remove
 - Resolve 20.3: AddMarker schlägt fehl bei leerem name="" → immer non-empty name übergeben
 - LUT-Indexierung: SetLUT() akzeptiert nur beim Start indexierte Pfade → bestehende .cube überschreiben
 - DJI_X7_DLOG2Rec709.cube enthält jetzt Zeb Gardner LUT (Original nicht mehr vorhanden)
+- Solid Color Generator: Farbe per API nicht setzbar (GetFusionCompByIndex gibt None zurück) → Workaround: ffmpeg-generierte schwarze MP4 verwenden
+- timeline_item → set_speed: Nutzt ChangeClipSpeed() — falls nicht verfügbar, manuell über Retime Controls
 
 ## Git-Workflow
 - Conventional Commits auf Deutsch
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-29 — v1.7.0: Cinematic FPV Edit mit Zeb Gardner D-Log M → Rec.709 LUT (Professioneller Workflow für DJI O3/D-Log M, 6-Segment-Cut, dramatisches CDL-Grading per Segment, Indexed-LUT-Workaround)
+2026-03-30 — v1.8.0: MCP-Lücken aus Sizilien-Projekt geschlossen: project get/set_settings, timeline delete, timeline_item set_speed, media_pool append_to_timeline mit Trim-Support (start_frame/end_frame/start_s/duration_s)

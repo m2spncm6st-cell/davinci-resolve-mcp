@@ -117,7 +117,7 @@ def resolve_control(action: str, page: str | None = None) -> dict:
 
 @mcp.tool()
 @safe_tool
-def project(action: str, name: str | None = None) -> dict:
+def project(action: str, name: str | None = None, settings: dict | None = None) -> dict:
     """Manage DaVinci Resolve projects.
 
     Actions:
@@ -127,10 +127,17 @@ def project(action: str, name: str | None = None) -> dict:
     - "save": Save the current project
     - "create": Create a new project. Requires: name
     - "close": Close the current project
+    - "get_settings": Get project settings (FPS, resolution, etc.)
+    - "set_settings": Set project settings. Requires: settings dict.
+      Common keys: timelineFrameRate ("23.976", "24", "25", "29.97", "30", "50", "59.94", "60"),
+      timelineResolutionWidth, timelineResolutionHeight (e.g. 3840, 2160),
+      videoMonitorFormat, colorScienceMode.
+      NOTE: timelineFrameRate can only be changed when NO timelines exist in the project.
 
     Args:
         action: The action to perform
         name: Project name (required for open, create)
+        settings: Dict of settings key/value pairs (for set_settings)
     """
     pm, proj, err = resolve.check()
 
@@ -191,10 +198,37 @@ def project(action: str, name: str | None = None) -> dict:
         result = pm_obj.CloseProject(proj)
         return _ok(closed=result)
 
+    elif action == "get_settings":
+        if err:
+            return err
+        keys = [
+            "timelineFrameRate", "timelineResolutionWidth", "timelineResolutionHeight",
+            "timelineOutputResolutionWidth", "timelineOutputResolutionHeight",
+            "timelinePlaybackFrameRate", "videoBitDepth", "videoMonitorFormat",
+            "colorScienceMode", "rcmPresetMode",
+        ]
+        result = {k: proj.GetSetting(k) for k in keys if proj.GetSetting(k) not in (None, "")}
+        return _ok(settings=result)
+
+    elif action == "set_settings":
+        if err:
+            return err
+        if not settings:
+            return _err("'settings' dict is required. Example: {\"timelineFrameRate\": \"25\"}")
+        applied = {}
+        failed = {}
+        for key, value in settings.items():
+            ok = proj.SetSetting(key, str(value))
+            if ok:
+                applied[key] = value
+            else:
+                failed[key] = value
+        return _ok(applied=applied, failed=failed)
+
     else:
         return _err(
             f"Unknown action: {action}. "
-            "Valid: list, get_current, open, save, create, close"
+            "Valid: list, get_current, open, save, create, close, get_settings, set_settings"
         )
 
 
@@ -236,6 +270,7 @@ def timeline(
     - "delete_between_markers": Delete all clips fully within two frame positions.
       Requires: track_index (marker_a_frame), index (marker_b_frame)
     - "rename_clips_from_markers": Rename clips after nearest overlapping marker. Optional: name (color filter)
+    - "delete": Delete a timeline by name. Requires: name. WARNING: irreversible.
     - "get_timecode": Get current playhead position as timecode
     - "set_timecode": Set playhead to timecode. Requires: name (timecode string "HH:MM:SS:FF")
 
@@ -592,6 +627,25 @@ def timeline(
                     renamed += 1
         return _ok(renamed=renamed)
 
+    elif action == "delete":
+        if not name:
+            return _err("'name' is required — timeline name to delete")
+        pm, proj2, err2 = resolve.check()
+        if err2:
+            return err2
+        count = proj2.GetTimelineCount()
+        target = None
+        for i in range(1, count + 1):
+            t = proj2.GetTimelineByIndex(i)
+            if t and t.GetName() == name:
+                target = t
+                break
+        if not target:
+            return _err(f"Timeline '{name}' not found")
+        mp2 = proj2.GetMediaPool()
+        result = mp2.DeleteTimelines([target])
+        return _ok(deleted=name, result=result)
+
     elif action == "get_timecode":
         tc = tl.GetCurrentTimecode()
         return _ok(timecode=tc)
@@ -609,7 +663,7 @@ def timeline(
 
     else:
         return _err(
-            f"Unknown action: {action}. Valid: list, get_current, set_current, create, "
+            f"Unknown action: {action}. Valid: list, get_current, set_current, create, delete, "
             "get_tracks, get_items, get_markers, add_marker, delete_markers, get_settings, "
             "duplicate, add_track, delete_track, export, insert_title, insert_generator, "
             "delete_clips, get_marker_clips, split_at_markers, delete_between_markers, "
@@ -663,6 +717,8 @@ def timeline_item(
       Example: "0.94 0.88 0.82;-0.04 -0.03 0.0;0.95 0.95 0.95;0.75". Optional: property_name (node index, default "1")
     - "copy_grades": Copy grades from this clip to all others on same track. Requires: track_type, track_index, item_index
     - "smart_reframe": Apply AI smart reframing. Requires: track_type, track_index, item_index
+    - "set_speed": Set clip playback speed (retime). Requires: property_value (speed % as string, e.g. "25" for 25% = 4x slowmo, "50" for 2x slowmo, "200" for 2x fast).
+      Optional: property_name ("ripple" = "true"/"false", default "false"). 100 = normal speed.
 
     Available properties for set_property:
     Pan, Tilt, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY,
@@ -973,12 +1029,27 @@ def timeline_item(
         result = item.SmartReframe()
         return _ok(reframed=bool(result))
 
+    elif action == "set_speed":
+        if property_value is None:
+            return _err("'property_value' is required — speed percentage as string (e.g. '25' for 4x slowmo, '100' for normal)")
+        item, item_err = _get_item()
+        if item_err:
+            return item_err
+        try:
+            speed = float(property_value)
+        except ValueError:
+            return _err(f"'property_value' must be a number, got '{property_value}'")
+        ripple = (property_name or "false").lower() == "true"
+        result = item.ChangeClipSpeed(speed, ripple)
+        return _ok(item=item.GetName(), speed=speed, ripple=ripple, applied=bool(result))
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: get_current, get_properties, set_property, "
             "get_info, set_clip_color, clear_clip_color, set_enabled, get_source_info, "
             "get_takes, get_selected_take, add_take, select_take, delete_take, finalize_take, "
-            "get_cache, set_cache, update_sidecar, stabilize, set_cdl, copy_grades, smart_reframe"
+            "get_cache, set_cache, update_sidecar, stabilize, set_cdl, copy_grades, smart_reframe, "
+            "set_speed"
         )
 
 
@@ -991,6 +1062,11 @@ def media_pool(
     folder_name: str | None = None,
     file_paths: list[str] | None = None,
     timeline_name: str | None = None,
+    start_frame: int | None = None,
+    end_frame: int | None = None,
+    duration_s: float | None = None,
+    start_s: float | None = None,
+    fps: float | None = None,
 ) -> dict:
     """Manage the DaVinci Resolve Media Pool.
 
@@ -1006,13 +1082,22 @@ def media_pool(
     - "create_timeline_from_clips": Create timeline from all clips in current folder. Requires: timeline_name
     - "get_root_folder": Navigate to root folder
     - "selected_clips": Get currently selected clips in the Media Pool
-    - "append_to_timeline": Append clips from current folder to active timeline. Optional: file_paths (clip names to filter)
+    - "append_to_timeline": Append clips from current folder to active timeline.
+      Optional: file_paths (clip names to filter).
+      Trim support: start_frame/end_frame (source frame numbers at native fps),
+      OR start_s/duration_s (seconds, requires fps parameter or auto-detected from clip).
+      Single clip per call when using trim. fps defaults to clip's native fps if omitted.
 
     Args:
         action: The action to perform
         folder_name: Folder name (for set/create/delete_folder) or clip name (for get_clip_info)
         file_paths: List of absolute file paths (for import_media) or clip names (for append_to_timeline)
         timeline_name: Name for new timeline (for create_timeline_from_clips)
+        start_frame: Source start frame (for append_to_timeline trim, at native clip fps)
+        end_frame: Source end frame inclusive (for append_to_timeline trim, at native clip fps)
+        duration_s: Duration in seconds to take from clip (alternative to end_frame)
+        start_s: Start offset in seconds into clip (alternative to start_frame)
+        fps: Native clip fps for second-based calculations (auto-detected if omitted)
     """
     proj, mp, err = resolve.get_media_pool()
 
@@ -1171,21 +1256,65 @@ def media_pool(
                 return _err(f"No matching clips found. Available: {[c.GetName() for c in clips]}")
         else:
             selected = clips
-        # AppendToTimeline returns a list of TimelineItems or empty list on failure
-        result = mp.AppendToTimeline(selected)
-        if result is None or (isinstance(result, list) and len(result) == 0):
-            return _err("AppendToTimeline failed — check if a timeline is active")
-        appended = result if isinstance(result, list) else [result]
-        return _ok(
-            appended=len(appended),
-            clip_names=[c.GetName() for c in selected],
-        )
+
+        # Build clip infos — support trim via start_frame/end_frame or start_s/duration_s
+        use_trim = (start_frame is not None or end_frame is not None or
+                    start_s is not None or duration_s is not None)
+
+        if use_trim:
+            if len(selected) != 1:
+                return _err("Trim (start_frame/end_frame/start_s/duration_s) requires exactly one clip — filter with file_paths")
+            clip = selected[0]
+            # Detect native fps from clip properties
+            clip_fps = fps
+            if clip_fps is None:
+                fps_str = clip.GetClipProperty("FPS")
+                try:
+                    clip_fps = float(fps_str) if fps_str else 25.0
+                except (ValueError, TypeError):
+                    clip_fps = 25.0
+
+            # Convert seconds to frames if needed
+            sf = start_frame
+            ef = end_frame
+            if start_s is not None and sf is None:
+                sf = int(start_s * clip_fps)
+            if duration_s is not None and ef is None:
+                base = sf if sf is not None else 0
+                ef = base + int(duration_s * clip_fps) - 1
+
+            clip_info = {"mediaPoolItem": clip}
+            if sf is not None:
+                clip_info["startFrame"] = sf
+            if ef is not None:
+                clip_info["endFrame"] = ef
+
+            result = mp.AppendToTimeline([clip_info])
+            if result is None or (isinstance(result, list) and len(result) == 0):
+                return _err("AppendToTimeline failed — check if a timeline is active")
+            return _ok(
+                appended=1,
+                clip_names=[clip.GetName()],
+                start_frame=sf,
+                end_frame=ef,
+                clip_fps=clip_fps,
+            )
+        else:
+            # AppendToTimeline returns a list of TimelineItems or empty list on failure
+            result = mp.AppendToTimeline(selected)
+            if result is None or (isinstance(result, list) and len(result) == 0):
+                return _err("AppendToTimeline failed — check if a timeline is active")
+            appended = result if isinstance(result, list) else [result]
+            return _ok(
+                appended=len(appended),
+                clip_names=[c.GetName() for c in selected],
+            )
 
     else:
         return _err(
             f"Unknown action: {action}. Valid: list_folders, get_current_folder, set_current_folder, "
             "create_folder, delete_folder, list_clips, get_clip_info, import_media, "
-            "create_timeline_from_clips, get_root_folder, selected_clips, append_to_timeline"
+            "create_timeline_from_clips, get_root_folder, selected_clips, append_to_timeline (with optional start_frame/end_frame/start_s/duration_s trim)"
         )
 
 
@@ -1558,15 +1687,22 @@ def color(
             r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
             luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
 
-            mean_luma = float(np.mean(luma))
-            r_mean = float(np.mean(r_ch))
-            g_mean = float(np.mean(g_ch))
-            b_mean = float(np.mean(b_ch))
-            p05 = float(np.percentile(luma, 5))
-            p95 = float(np.percentile(luma, 95))
-            shadow_pct = float(np.mean(luma < 0.20) * 100)
-            mid_pct = float(np.mean((luma >= 0.20) & (luma < 0.70)) * 100)
-            hi_pct = float(np.mean(luma >= 0.70) * 100)
+            valid = luma > 0.02
+            if valid.sum() > luma.size * 0.3:
+                luma_v = luma[valid]
+                r_v, g_v, b_v = r_ch[valid], g_ch[valid], b_ch[valid]
+            else:
+                luma_v, r_v, g_v, b_v = luma.ravel(), r_ch.ravel(), g_ch.ravel(), b_ch.ravel()
+            mean_luma = float(np.mean(luma_v))
+            r_mean = float(np.mean(r_v))
+            g_mean = float(np.mean(g_v))
+            b_mean = float(np.mean(b_v))
+            p05 = float(np.percentile(luma_v, 5))
+            p95 = float(np.percentile(luma_v, 95))
+            shadow_pct = float(np.mean(luma_v < 0.20) * 100)
+            mid_pct = float(np.mean((luma_v >= 0.20) & (luma_v < 0.70)) * 100)
+            hi_pct = float(np.mean(luma_v >= 0.70) * 100)
+            crop_pct = round(100.0 * (1.0 - valid.sum() / luma.size), 1)
 
             TARGET_LUMA = 0.38
             if 0.005 < mean_luma < 0.995:
@@ -1601,6 +1737,7 @@ def color(
             suggested_power=f"{sug_power:.3f} {sug_power:.3f} {sug_power:.3f}",
             note=f"Luma measured {'post-LUT (Rec709)' if lut_path else 'on DLog source (no LUT found)'}",
             lut_applied=_os.path.basename(lut_path) if lut_path else None,
+            black_border_pct=crop_pct,
         )
 
     elif action == "analyze_timeline":
@@ -1743,10 +1880,14 @@ def color(
                 arr = np.array(img, dtype=np.float32) / 255.0
                 r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
                 luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+                valid = luma > 0.02
+                luma_v = luma[valid] if valid.sum() > luma.size * 0.3 else luma.ravel()
+                crop_pct = round(100.0 * (1.0 - valid.sum() / luma.size), 1)
                 return {
-                    "mean": float(np.mean(luma)),
-                    "p05":  float(np.percentile(luma, 5)),
-                    "p95":  float(np.percentile(luma, 95)),
+                    "mean": float(np.mean(luma_v)),
+                    "p05":  float(np.percentile(luma_v, 5)),
+                    "p95":  float(np.percentile(luma_v, 95)),
+                    "crop_pct": crop_pct,
                 }
             finally:
                 try:
@@ -1801,6 +1942,7 @@ def color(
                 "mean_luma": round(mean_luma, 3),
                 "luma_p05": round(stats["p05"], 3),
                 "luma_p95": round(stats["p95"], 3),
+                "black_border_pct": stats.get("crop_pct", 0.0),
                 "suggested_power": f"{sug_power:.3f} {sug_power:.3f} {sug_power:.3f}",
                 "_item": item,   # kept for auto_grade, stripped before return
                 "_power": sug_power,
@@ -1921,6 +2063,7 @@ def color(
                 applied.append({"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"})
                 continue
 
+            crop_pct = 0.0
             try:
                 import numpy as np
                 from PIL import Image
@@ -1929,7 +2072,9 @@ def color(
                     img = img.resize((1920, 1080), Image.BILINEAR)
                 arr = np.array(img, dtype=np.float32) / 255.0
                 luma = 0.2126 * arr[:,:,0] + 0.7152 * arr[:,:,1] + 0.0722 * arr[:,:,2]
-                mean_luma = float(np.mean(luma))
+                valid = luma > 0.02
+                mean_luma = float(np.mean(luma[valid])) if valid.sum() > luma.size * 0.3 else float(np.mean(luma))
+                crop_pct = round(100.0 * (1.0 - valid.sum() / luma.size), 1)
             finally:
                 try:
                     _os.remove(out_png)
@@ -1958,6 +2103,7 @@ def color(
                 "mean_luma_before": round(mean_luma, 3),
                 "power_applied": f"{power:.3f} {power:.3f} {power:.3f}",
                 "cdl_set": bool(cdl_ok),
+                "black_border_pct": crop_pct,
             })
 
         return _ok(
