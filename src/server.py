@@ -79,10 +79,6 @@ def resolve_control(action: str, page: str | None = None) -> dict:
     - "get_page": Get the current page name
     - "set_page": Switch to a page. Requires: page (media|cut|edit|fusion|color|fairlight|deliver)
     - "get_version": Get Resolve version string
-
-    Args:
-        action: The action to perform
-        page: Target page for set_page action
     """
     r = resolve.connect()
     if not r:
@@ -133,11 +129,6 @@ def project(action: str, name: str | None = None, settings: dict | None = None) 
       timelineResolutionWidth, timelineResolutionHeight (e.g. 3840, 2160),
       videoMonitorFormat, colorScienceMode.
       NOTE: timelineFrameRate can only be changed when NO timelines exist in the project.
-
-    Args:
-        action: The action to perform
-        name: Project name (required for open, create)
-        settings: Dict of settings key/value pairs (for set_settings)
     """
     pm, proj, err = resolve.check()
 
@@ -275,13 +266,8 @@ def timeline(
     - "set_timecode": Set playhead to timecode. Requires: name (timecode string "HH:MM:SS:FF")
 
     Args:
-        action: The action to perform
-        name: Timeline/title/generator name, or marker color (for get_marker_clips), or marker color to delete
-        index: Timeline index, 1-based (for set_current); or marker_b_frame (for delete_between_markers)
-        track_type: Track type: video, audio, subtitle
-        track_index: Track index, 1-based; or frame number (for add_marker, delete_between_markers as marker_a_frame)
-        export_format: Export format (for export action)
-        file_path: File path (for export action)
+        track_index: Frame number when used with add_marker or delete_between_markers
+        index: marker_b_frame when used with delete_between_markers
     """
     proj, tl, err = resolve.get_timeline()
 
@@ -1484,12 +1470,8 @@ def color(
     - "auto_grade": Measure ALL clips and apply CDL Power in one step. Optional: node_index as target luma (default 0.38).
 
     Args:
-        action: The action to perform
-        node_index: Node index, 1-based (for get_lut, set_lut, set_node_enabled)
-        lut_path: Path to LUT file (for set_lut), or "true"/"false" (for set_node_enabled)
-        item_index: Specific timeline item index on video track 1 (for get_node_graph)
-        version_name: Version name (for add/load/delete_version)
-        version_type: Version type: 0=local, 1=remote (default 0)
+        node_index: 1-based node index; exception: for export_lut use 0=.cube or 1=.3dl
+        lut_path: For set_node_enabled: "true"/"false" instead of a LUT path
     """
     proj, tl, err = resolve.get_timeline()
 
@@ -2318,15 +2300,6 @@ def deliver(
     - "stop_render": Stop current render
     - "is_rendering": Check if rendering is in progress
     - "delete_all_jobs": Clear the render queue
-
-    Args:
-        action: The action to perform
-        preset_name: Render preset name
-        target_dir: Output directory path
-        file_name: Output file name (without extension)
-        render_format: Render format (e.g. "mp4", "mov")
-        render_codec: Render codec (e.g. "H.265", "H.264")
-        job_id: Render job ID
     """
     pm, proj, err = resolve.check()
 
