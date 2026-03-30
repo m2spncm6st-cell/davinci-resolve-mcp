@@ -184,3 +184,36 @@ def _ser(obj) -> any:
     if hasattr(obj, "GetName"):
         return obj.GetName()
     return str(obj)
+
+
+# ── Shared helper functions ──────────────────────────────────────────
+
+_LUT_ROOTS = [
+    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
+    os.path.expanduser(
+        "~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
+    ),
+]
+
+
+def tc_to_frames(tc: str, fps: float) -> int:
+    """Convert a timecode string 'HH:MM:SS:FF' (or 'HH:MM:SS;FF') to frame number."""
+    parts = tc.replace(";", ":").split(":")
+    h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+    return int((h * 3600 + m * 60 + s) * fps + f)
+
+
+def find_lut(lut_rel: str | None) -> str | None:
+    """Resolve a relative or absolute LUT path against standard Resolve LUT directories.
+
+    Returns the absolute path if found, or None.
+    """
+    if not lut_rel:
+        return None
+    if os.path.isabs(lut_rel) and os.path.exists(lut_rel):
+        return lut_rel
+    for root in _LUT_ROOTS:
+        candidate = os.path.join(root, lut_rel)
+        if os.path.exists(candidate):
+            return candidate
+    return None

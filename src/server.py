@@ -13,7 +13,7 @@ if pythonpath and pythonpath not in sys.path:
 
 from mcp.server.fastmcp import FastMCP
 
-from resolve_connection import ResolveConnection, _err, _ok, _ser
+from resolve_connection import ResolveConnection, _err, _ok, _ser, tc_to_frames, find_lut
 
 logger = logging.getLogger(__name__)
 
@@ -1734,12 +1734,7 @@ def color(
         except Exception:
             fps = 24.0
 
-        def _tc_to_frames(tc, fps):
-            parts = tc.replace(";", ":").split(":")
-            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
-            return int((h * 3600 + m * 60 + s) * fps + f)
-
-        cur_frame = _tc_to_frames(tc_str, fps)
+        cur_frame = tc_to_frames(tc_str, fps)
 
         current_item = None
         for item in items:
@@ -1771,25 +1766,10 @@ def color(
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         # Find LUT for post-LUT Rec709 measurement
-        LUT_ROOTS = [
-            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
-            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
-        ]
-        def _find_lut_grab(lut_rel):
-            if not lut_rel:
-                return None
-            if _os.path.isabs(lut_rel) and _os.path.exists(lut_rel):
-                return lut_rel
-            for root in LUT_ROOTS:
-                c = _os.path.join(root, lut_rel)
-                if _os.path.exists(c):
-                    return c
-            return None
-
         lut_path = None
         try:
             lut_rel = current_item.GetLUT(1) if hasattr(current_item, "GetLUT") else None
-            lut_path = _find_lut_grab(lut_rel)
+            lut_path = find_lut(lut_rel)
         except Exception:
             pass
 
@@ -1891,35 +1871,14 @@ def color(
             fps = 24.0
 
         # Timeline start offset in frames (e.g. 01:00:00:00 = 90000 frames at 25fps)
-        def _tc_to_frames_inner(tc, fps):
-            parts = tc.replace(";", ":").split(":")
-            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
-            return int((h * 3600 + m * 60 + s) * fps + f)
-
         tl_start_tc = tl.GetStartTimecode() if hasattr(tl, "GetStartTimecode") else "01:00:00:00"
-        tl_start_frame = _tc_to_frames_inner(tl_start_tc, fps)
+        tl_start_frame = tc_to_frames(tl_start_tc, fps)
 
         ffmpeg = _shutil.which("ffmpeg")
         if not ffmpeg:
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         TARGET_LUMA = 0.38
-
-        # Find the LUT applied to node 1 of the first clip (assume same LUT for all)
-        LUT_SEARCH_ROOTS = [
-            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
-            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
-        ]
-        def _find_lut(lut_relative):
-            if not lut_relative:
-                return None
-            if _os.path.isabs(lut_relative) and _os.path.exists(lut_relative):
-                return lut_relative
-            for root in LUT_SEARCH_ROOTS:
-                candidate = _os.path.join(root, lut_relative)
-                if _os.path.exists(candidate):
-                    return candidate
-            return None
 
         # Try to get LUT from first clip node 1
         first_items = tl.GetItemListInTrack("video", 1) or []
@@ -1929,7 +1888,7 @@ def color(
                 first_grade = first_items[0].GetNodeGraph(1) if hasattr(first_items[0], "GetNodeGraph") else None
                 # Use color tool to get LUT path
                 lut_rel = first_items[0].GetLUT(1) if hasattr(first_items[0], "GetLUT") else None
-                applied_lut_path = _find_lut(lut_rel)
+                applied_lut_path = find_lut(lut_rel)
             except Exception:
                 pass
 
@@ -2002,7 +1961,7 @@ def color(
             if lut_path is None:
                 try:
                     lut_rel = item.GetLUT(1) if hasattr(item, "GetLUT") else None
-                    lut_path = _find_lut(lut_rel)
+                    lut_path = find_lut(lut_rel)
                 except Exception:
                     pass
 
@@ -2076,37 +2035,17 @@ def color(
         except Exception:
             fps = 24.0
 
-        def _tc_to_f(tc, fps):
-            parts = tc.replace(";", ":").split(":")
-            h, m, s, f = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
-            return int((h * 3600 + m * 60 + s) * fps + f)
-
         ffmpeg = _shutil.which("ffmpeg")
         if not ffmpeg:
             return _err("ffmpeg not found in PATH. Install via: brew install ffmpeg")
 
         TARGET_LUMA = float(node_index) if node_index and str(node_index).replace(".", "").isdigit() else 0.38
 
-        LUT_ROOTS = [
-            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT",
-            _os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
-        ]
-        def _find_lut_ag(lut_rel):
-            if not lut_rel:
-                return None
-            if _os.path.isabs(lut_rel) and _os.path.exists(lut_rel):
-                return lut_rel
-            for root in LUT_ROOTS:
-                c = _os.path.join(root, lut_rel)
-                if _os.path.exists(c):
-                    return c
-            return None
-
         # Resolve LUT once from first clip
         applied_lut = None
         try:
             lut_rel = items[0].GetLUT(1) if hasattr(items[0], "GetLUT") else None
-            applied_lut = _find_lut_ag(lut_rel)
+            applied_lut = find_lut(lut_rel)
         except Exception:
             pass
 
@@ -2140,7 +2079,7 @@ def color(
             if lut_path is None:
                 try:
                     lut_rel = item.GetLUT(1) if hasattr(item, "GetLUT") else None
-                    lut_path = _find_lut_ag(lut_rel)
+                    lut_path = find_lut(lut_rel)
                 except Exception:
                     pass
 
@@ -2248,13 +2187,13 @@ def analyze_media(
     import json
     import os
     import re
-    import shutil
+    import shutil as _shutil
 
     if not os.path.exists(file_path):
         return _err(f"File not found: {file_path}")
 
-    ffprobe = shutil.which("ffprobe")
-    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = _shutil.which("ffprobe")
+    ffmpeg = _shutil.which("ffmpeg")
     if not ffprobe or not ffmpeg:
         missing = ", ".join(t for t, v in [("ffprobe", ffprobe), ("ffmpeg", ffmpeg)] if not v)
         return _err(f"{missing} not found in PATH. Install via: brew install ffmpeg")
