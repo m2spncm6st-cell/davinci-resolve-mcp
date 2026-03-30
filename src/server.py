@@ -1868,35 +1868,28 @@ def color(
             except Exception:
                 pass
 
-        out_png = _os.path.join(_tempfile.gettempdir(), "resolve_analyze_frame.png")
-
         def _source_offset_sec(item, fps):
-            """Return the correct source-file seek time in seconds for the clip's mid-frame.
-            Uses GetLeftOffset() (= in-point offset from clip start) when available,
-            so clips that were trimmed at the in-point are measured correctly."""
+            """Return the correct source-file seek time in seconds for the clip's mid-frame."""
             tl_start = item.GetStart()
             tl_end   = item.GetEnd()
             tl_mid   = (tl_start + tl_end) // 2
-            clip_frames_from_head = tl_mid - tl_start   # frames into this clip from its in-point
-
-            # GetLeftOffset() = how many frames were trimmed off the front of the source
             left_offset = 0
             try:
                 left_offset = int(item.GetLeftOffset())
             except Exception:
                 pass
+            return max(0.0, (left_offset + tl_mid - tl_start) / fps)
 
-            source_frame = left_offset + clip_frames_from_head
-            return max(0.0, source_frame / fps)
-
-        def _measure_frame_v2(clip_path, offset_sec, lut_path):
+        def _measure_frame_v2(clip_path, offset_sec, lut_path, clip_idx):
+            """Extract one frame with ffmpeg + numpy. Each call uses its own temp file."""
+            out_png = _os.path.join(_tempfile.gettempdir(), f"resolve_frame_{clip_idx}.png")
             cmd = [ffmpeg, "-y", "-ss", str(offset_sec), "-i", clip_path]
             if lut_path:
                 safe = lut_path.replace("\\", "/").replace(":", "\\:")
                 cmd += ["-vf", f"lut3d='{safe}'"]
             cmd += ["-vframes", "1", "-q:v", "2", out_png]
-            _subprocess.run(cmd, capture_output=True, timeout=15)
-            if not _os.path.exists(out_png):
+            result = _subprocess.run(cmd, capture_output=True, timeout=15)
+            if result.returncode != 0 or not _os.path.exists(out_png):
                 return None
             try:
                 import numpy as np
@@ -1905,16 +1898,14 @@ def color(
                 if img.width > 1920:
                     img = img.resize((1920, 1080), Image.BILINEAR)
                 arr = np.array(img, dtype=np.float32) / 255.0
-                r_ch, g_ch, b_ch = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-                luma = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+                luma = 0.2126 * arr[:,:,0] + 0.7152 * arr[:,:,1] + 0.0722 * arr[:,:,2]
                 valid = luma > 0.02
                 luma_v = luma[valid] if valid.sum() > luma.size * 0.3 else luma.ravel()
-                crop_pct = round(100.0 * (1.0 - valid.sum() / luma.size), 1)
                 return {
                     "mean": float(np.mean(luma_v)),
                     "p05":  float(np.percentile(luma_v, 5)),
                     "p95":  float(np.percentile(luma_v, 95)),
-                    "crop_pct": crop_pct,
+                    "crop_pct": round(100.0 * (1.0 - valid.sum() / luma.size), 1),
                 }
             finally:
                 try:
@@ -1922,17 +1913,18 @@ def color(
                 except Exception:
                     pass
 
-        def _analyze_clip(item, idx):
+        # Phase 1: Collect clip metadata via Resolve API (sequential — API not thread-safe)
+        clip_meta = []
+        for idx, item in enumerate(items, start=1):
             media = item.GetMediaPoolItem()
             if not media:
-                return {"clip": idx, "error": "no MediaPoolItem"}
+                clip_meta.append({"clip": idx, "error": "no MediaPoolItem", "_item": item})
+                continue
             clip_path = media.GetClipProperty("File Path")
             if not clip_path or not _os.path.exists(clip_path):
-                return {"clip": idx, "error": f"file not found: {clip_path}"}
-
+                clip_meta.append({"clip": idx, "error": f"file not found: {clip_path}", "_item": item})
+                continue
             offset_sec = _source_offset_sec(item, fps)
-
-            # Per-clip LUT lookup (fallback to pre-resolved applied_lut_path)
             lut_path = applied_lut_path
             if lut_path is None:
                 try:
@@ -1940,44 +1932,48 @@ def color(
                     lut_path = find_lut(lut_rel)
                 except Exception:
                     pass
+            tl_mid = (item.GetStart() + item.GetEnd()) // 2
+            total_sec = tl_mid / fps
+            tc = (f"{int(total_sec // 3600):02d}:{int((total_sec % 3600) // 60):02d}:"
+                  f"{int(total_sec % 60):02d}:{int(round((total_sec % 1) * fps)):02d}")
+            clip_meta.append({
+                "clip": idx, "_item": item,
+                "_path": clip_path, "_offset": offset_sec,
+                "_lut": lut_path, "_tc": tc,
+            })
 
-            stats = _measure_frame_v2(clip_path, offset_sec, lut_path)
+        # Phase 2: Measure frames in parallel (ffmpeg + numpy — safe to thread)
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _measure_one(meta):
+            if "error" in meta:
+                return meta
+            stats = _measure_frame_v2(meta["_path"], meta["_offset"], meta["_lut"], meta["clip"])
             if stats is None:
-                return {"clip": idx, "error": f"ffmpeg failed at {offset_sec:.2f}s"}
-
+                return {"clip": meta["clip"], "error": f"ffmpeg failed at {meta['_offset']:.2f}s",
+                        "_item": meta["_item"]}
             mean_luma = stats["mean"]
             if 0.005 < mean_luma < 0.995:
                 sug_power = round(_math.log(TARGET_LUMA) / _math.log(mean_luma), 3)
                 sug_power = max(0.50, min(1.80, sug_power))
             else:
                 sug_power = 1.0
-
-            # Timeline mid-frame → timecode string
-            tl_mid = (item.GetStart() + item.GetEnd()) // 2
-            total_sec = tl_mid / fps
-            h = int(total_sec // 3600)
-            m = int((total_sec % 3600) // 60)
-            s = int(total_sec % 60)
-            f = int(round((total_sec % 1) * fps))
-            tc = f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
-
             return {
-                "clip": idx,
-                "timecode": tc,
-                "clip_path": _os.path.basename(clip_path),
-                "offset_sec": round(offset_sec, 2),
+                "clip": meta["clip"],
+                "timecode": meta["_tc"],
+                "clip_path": _os.path.basename(meta["_path"]),
+                "offset_sec": round(meta["_offset"], 2),
                 "mean_luma": round(mean_luma, 3),
                 "luma_p05": round(stats["p05"], 3),
                 "luma_p95": round(stats["p95"], 3),
                 "black_border_pct": stats.get("crop_pct", 0.0),
                 "suggested_power": f"{sug_power:.3f} {sug_power:.3f} {sug_power:.3f}",
-                "_item": item,   # kept for auto_grade, stripped before return
+                "_item": meta["_item"],
                 "_power": sug_power,
             }
 
-        results = []
-        for idx, item in enumerate(items, start=1):
-            results.append(_analyze_clip(item, idx))
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(_measure_one, clip_meta))
 
         # Strip internal keys before returning
         clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]
