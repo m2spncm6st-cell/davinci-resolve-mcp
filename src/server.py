@@ -3280,6 +3280,9 @@ def _fx_add_transition(
     tl.SetCurrentTimecode(tc)
 
     # Insert Fusion composition at playhead (between the two clips)
+    # Note: InsertFusionCompositionIntoTimeline() uses Resolve's default clip duration.
+    # The duration param is accepted and returned for caller reference but not applied —
+    # Resolve does not expose a direct API to set the duration on insertion.
     fusion_item = tl.InsertFusionCompositionIntoTimeline()
     if not fusion_item:
         return _err("InsertFusionCompositionIntoTimeline() returned None. "
