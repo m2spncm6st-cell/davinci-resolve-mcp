@@ -3020,16 +3020,33 @@ def fx(
         )
 
 
-def _fx_apply_look(look, clip_index, all_clips):
+def _fx_apply_look(look: str | None, clip_index: int | None, all_clips: bool) -> dict:
     return _err("Not yet implemented")
 
-def _fx_install_templates():
+
+def _fx_install_templates() -> dict:
     return _err("Not yet implemented")
 
-def _fx_add_transition(transition, track_index, item_index, duration):
+
+def _fx_add_transition(
+    transition: str | None,
+    track_index: int | None,
+    item_index: int | None,
+    duration: int | None,
+) -> dict:
     return _err("Not yet implemented")
 
-def _fx_create_3d_text(text, clip_index, font, size, color, extrusion, position_x, position_y):
+
+def _fx_create_3d_text(
+    text: str | None,
+    clip_index: int | None,
+    font: str | None,
+    size: float | None,
+    color: str | None,
+    extrusion: float | None,
+    position_x: float | None,
+    position_y: float | None,
+) -> dict:
     return _err("Not yet implemented")
 
 
