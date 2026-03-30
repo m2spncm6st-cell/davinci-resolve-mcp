@@ -37,15 +37,10 @@ def safe_tool(func):
     return wrapper
 
 
-# ── resolve_status ──────────────────────────────────────────────────
+# ── resolve_status (internal helper) ────────────────────────────────
 
-@mcp.tool()
-@safe_tool
-def resolve_status() -> dict:
-    """Get DaVinci Resolve connection status, version, current project, and current page.
-
-    Use this tool first to verify that Resolve is running and reachable.
-    """
+def _resolve_status() -> dict:
+    """Get DaVinci Resolve connection status. Called by resolve_control(action='status')."""
     try:
         r = resolve.connect()
         if r is None:
@@ -85,7 +80,7 @@ def resolve_control(action: str, page: str | None = None) -> dict:
         return _err("Not connected to DaVinci Resolve")
 
     if action == "status":
-        return resolve_status()
+        return _resolve_status()
 
     elif action == "get_page":
         return _ok(page=r.GetCurrentPage())
