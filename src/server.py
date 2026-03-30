@@ -3020,8 +3020,55 @@ def fx(
         )
 
 
+def _build_cdl_dict(look: dict) -> dict:
+    """Build the dict passed to item.SetCDL() from a LOOKS entry."""
+    return {
+        "NodeIndex": "1",
+        "Slope": look["Slope"],
+        "Offset": look["Offset"],
+        "Power": look["Power"],
+        "Saturation": look["Saturation"],
+    }
+
+
 def _fx_apply_look(look: str | None, clip_index: int | None, all_clips: bool) -> dict:
-    return _err("Not yet implemented")
+    if not look:
+        return _err("'look' is required. Use action='list_looks' to see available presets.")
+    if look not in LOOKS:
+        valid = ", ".join(LOOKS.keys())
+        return _err(f"Unknown look '{look}'. Valid: {valid}")
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    cdl = _build_cdl_dict(LOOKS[look])
+
+    if all_clips:
+        items = tl.GetItemListInTrack("video", 1)
+        if not items:
+            return _err("No items on video track 1")
+        applied = 0
+        for item in items:
+            if hasattr(item, "SetCDL") and item.SetCDL(cdl):
+                applied += 1
+        return _ok(look=look, applied_to=applied, mode="all_clips")
+
+    # Single clip
+    if clip_index is not None:
+        items = tl.GetItemListInTrack("video", 1)
+        if not items or clip_index < 1 or clip_index > len(items):
+            return _err(f"clip_index {clip_index} out of range (1\u20133{len(items) if items else 0})")
+        item = list(items)[clip_index - 1]
+    else:
+        item = tl.GetCurrentVideoItem()
+        if not item:
+            return _err("No current video item. Use clip_index or navigate to a clip first.")
+
+    if not hasattr(item, "SetCDL"):
+        return _err("SetCDL() not available on this item")
+    result = item.SetCDL(cdl)
+    return _ok(look=look, clip=item.GetName(), applied=bool(result))
 
 
 def _fx_install_templates() -> dict:

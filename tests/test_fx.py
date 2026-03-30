@@ -43,3 +43,58 @@ def test_cdl_str_formats_float():
 
 def test_cdl_str_formats_asymmetric():
     assert _cdl_str(1.1, 0.95, 0.88) == "1.100 0.950 0.880"
+
+
+def test_build_cdl_dict_has_node_index():
+    from server import _build_cdl_dict
+    result = _build_cdl_dict(LOOKS["cinematic_teal_orange"])
+    assert result["NodeIndex"] == "1"
+    assert "Slope" in result
+    assert "Offset" in result
+    assert "Power" in result
+    assert "Saturation" in result
+
+
+def test_build_cdl_dict_values_match_look():
+    from server import _build_cdl_dict
+    look = LOOKS["aerial_clean"]
+    result = _build_cdl_dict(look)
+    assert result["Slope"] == look["Slope"]
+    assert result["Saturation"] == look["Saturation"]
+
+
+def test_apply_look_unknown_look_returns_error():
+    from unittest.mock import MagicMock, patch
+    import server
+
+    mock_item = MagicMock()
+    mock_item.SetCDL.return_value = True
+    mock_tl = MagicMock()
+    mock_tl.GetCurrentVideoItem.return_value = mock_item
+    mock_proj = MagicMock()
+
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        result = server.fx(action="apply_look", look="nonexistent_look")
+
+    assert result["success"] is False
+    assert "nonexistent_look" in result["error"]
+
+
+def test_apply_look_calls_setcdl():
+    from unittest.mock import MagicMock, patch
+    import server
+
+    mock_item = MagicMock()
+    mock_item.SetCDL.return_value = True
+    mock_tl = MagicMock()
+    mock_tl.GetCurrentVideoItem.return_value = mock_item
+    mock_proj = MagicMock()
+
+    with patch.object(server.resolve, 'get_timeline', return_value=(mock_proj, mock_tl, None)):
+        result = server.fx(action="apply_look", look="aerial_clean")
+
+    assert result["success"] is True
+    mock_item.SetCDL.assert_called_once()
+    cdl_arg = mock_item.SetCDL.call_args[0][0]
+    assert cdl_arg["NodeIndex"] == "1"
+    assert cdl_arg["Saturation"] == "1.050"
