@@ -4,7 +4,7 @@
 MCP-Server zur stabilen Steuerung von DaVinci Resolve über Claude Code.
 Fokus auf Stabilität, Lazy Connection und Reconnect-Logik.
 
-## Status: v1.9.0 — Timeline Trim, Multi-Clip-Append, Global MCP
+## Status: v2.0.0 — Code-Review Cleanup, Logging, Portabilität
 Alle Phasen abgeschlossen. Server ist produktionsreif.
 
 ## Umgebung
@@ -41,11 +41,9 @@ claude mcp add davinci-resolve --scope user \
 
 ## Implementierte Tools (11 Tools, 114+ Actions)
 
-### resolve_status()
-Verbindungsstatus, Version, Projekt, Page
-
 ### resolve_control(action, page)
 status, get_page, set_page, get_version
+(Hinweis: `resolve_status()` ist kein eigenes Tool mehr — intern als `_resolve_status()` verwendet)
 
 ### project(action, name, settings)
 list, get_current, open, save, create, close, get_settings, set_settings
@@ -75,7 +73,8 @@ multi-clip: clip_specs JSON-Array mit per-Clip name/start_frame/end_frame/start_
 get_current_item, get_node_graph, get_nodes, get_lut, set_lut,
 set_node_enabled, reset_grades, get_color_groups, get_timeline_nodes,
 list_versions, get_version, add_version, load_version, delete_version,
-create_magic_mask, regenerate_magic_mask, export_lut
+create_magic_mask, regenerate_magic_mask, export_lut,
+grab_and_analyze, analyze_timeline, auto_grade
 
 ### deliver(action, preset_name, target_dir, file_name, render_format, render_codec, job_id)
 get_formats, get_codecs, get_presets, load_preset, get_current_format, set_format,
@@ -109,6 +108,7 @@ list_types, get, add, remove
 - [x] Phase 11: Cinematic FPV Edit — Zeb Gardner D-Log M Workflow (v1.7.0)
 - [x] Phase 12: Sizilien Erinnerungsvideo — MCP Lücken geschlossen (v1.8.0)
 - [x] Phase 13: Timeline Trim, Multi-Clip-Append, Global MCP (v1.9.0)
+- [x] Phase 14: Code-Review Cleanup — Dead Code, Portabilität, DRY, Token-Effizienz, Logging (v2.0.0)
 
 ## Bekannte Probleme
 - Python 3.13+ inkompatibel mit fusionscript.so → pyenv 3.12 verwenden
@@ -130,4 +130,4 @@ list_types, get, add, remove
 - Git-Tags bei Meilensteinen
 
 ## Letzte Änderung
-2026-03-30 — v1.9.0: timeline_item action=trim (SetLeftOffset/SetRightOffset), media_pool clip_specs Multi-Clip-Trim, MCP User-Scope global registriert
+2026-03-30 — v2.0.0: Code-Review Cleanup (toten Code entfernt, ffmpeg-Pfade portabel, tc_to_frames/find_lut dedupliziert, Docstrings gekürzt, resolve_status als internen Helper degradiert), Logging in ~/.resolve-mcp.log

@@ -2817,4 +2817,14 @@ def fairlight(
 
 
 if __name__ == "__main__":
+    log_file = os.path.expanduser("~/.resolve-mcp.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stderr),
+        ],
+    )
+    logger.info("DaVinci Resolve MCP Server starting (PID %d)", os.getpid())
     mcp.run()
