@@ -2825,6 +2825,214 @@ def fairlight(
         )
 
 
+# ── fx ──────────────────────────────────────────────────────────────
+
+def _cdl_str(r: float, g: float, b: float) -> str:
+    """Format three float values as ASC CDL string '1.000 1.000 1.000'."""
+    return f"{r:.3f} {g:.3f} {b:.3f}"
+
+
+LOOKS: dict[str, dict] = {
+    "cinematic_teal_orange": {
+        "description": "Hollywood-Blockbuster: Teal-Schatten, Orange-Highlights",
+        "Slope": _cdl_str(1.10, 1.00, 0.88),
+        "Offset": _cdl_str(0.00, 0.01, 0.03),
+        "Power": _cdl_str(1.00, 1.00, 1.00),
+        "Saturation": "1.150",
+    },
+    "cinematic_cold_blue": {
+        "description": "Sci-Fi/Thriller: kühle Blautöne, entsättigt",
+        "Slope": _cdl_str(0.90, 0.95, 1.10),
+        "Offset": _cdl_str(0.00, 0.00, 0.03),
+        "Power": _cdl_str(0.95, 0.95, 1.05),
+        "Saturation": "0.850",
+    },
+    "golden_hour": {
+        "description": "Drohne/Travel: warme Highlights, erhöhte Sättigung",
+        "Slope": _cdl_str(1.10, 1.00, 0.90),
+        "Offset": _cdl_str(0.02, 0.01, 0.00),
+        "Power": _cdl_str(1.02, 1.00, 0.95),
+        "Saturation": "1.200",
+    },
+    "aerial_clean": {
+        "description": "Drohne Rec.709: minimal, natürlicher Look",
+        "Slope": _cdl_str(1.00, 1.00, 1.00),
+        "Offset": _cdl_str(0.00, 0.00, 0.00),
+        "Power": _cdl_str(1.02, 1.02, 1.02),
+        "Saturation": "1.050",
+    },
+    "vintage_film": {
+        "description": "Retro/16mm: gehobene Schwarzwerte, leicht verblasst",
+        "Slope": _cdl_str(0.95, 0.95, 0.90),
+        "Offset": _cdl_str(0.05, 0.04, 0.03),
+        "Power": _cdl_str(1.00, 0.98, 0.95),
+        "Saturation": "0.800",
+    },
+    "cross_processed": {
+        "description": "90s/Editorial: invertierte Farbkanäle in Schatten",
+        "Slope": _cdl_str(1.05, 1.00, 0.85),
+        "Offset": _cdl_str(0.02, -0.01, 0.03),
+        "Power": _cdl_str(1.00, 0.95, 1.10),
+        "Saturation": "1.100",
+    },
+    "moody_dark": {
+        "description": "Drama/Noir: tiefe Blacks, stark reduzierte Sättigung",
+        "Slope": _cdl_str(1.00, 1.00, 1.05),
+        "Offset": _cdl_str(-0.02, -0.02, -0.02),
+        "Power": _cdl_str(0.90, 0.90, 0.92),
+        "Saturation": "0.600",
+    },
+    "bleach_bypass": {
+        "description": "Hartes Licht: hoher Kontrast, fast Schwarzweiß",
+        "Slope": _cdl_str(1.15, 1.15, 1.15),
+        "Offset": _cdl_str(-0.03, -0.03, -0.03),
+        "Power": _cdl_str(1.10, 1.10, 1.10),
+        "Saturation": "0.300",
+    },
+    "action_punch": {
+        "description": "Sport/Dynamik: hoher Kontrast, gesättigte Farben",
+        "Slope": _cdl_str(1.15, 1.10, 1.05),
+        "Offset": _cdl_str(-0.02, -0.02, -0.02),
+        "Power": _cdl_str(1.00, 1.00, 1.00),
+        "Saturation": "1.300",
+    },
+    "glitch_color": {
+        "description": "Musik/Urban: RGB-Shift, intensive Farben",
+        "Slope": _cdl_str(1.10, 0.95, 1.10),
+        "Offset": _cdl_str(0.02, -0.01, 0.02),
+        "Power": _cdl_str(1.00, 0.98, 1.05),
+        "Saturation": "1.400",
+    },
+    "arctic_cold": {
+        "description": "Winter/Landschaft: kühle Mitteltöne, blaue Schatten",
+        "Slope": _cdl_str(0.95, 0.98, 1.10),
+        "Offset": _cdl_str(0.00, 0.01, 0.04),
+        "Power": _cdl_str(0.95, 0.98, 1.05),
+        "Saturation": "0.900",
+    },
+    "summer_warm": {
+        "description": "Lifestyle/Sommer: warme Töne, leicht erhöhtes Gamma",
+        "Slope": _cdl_str(1.08, 1.02, 0.95),
+        "Offset": _cdl_str(0.02, 0.01, 0.00),
+        "Power": _cdl_str(1.05, 1.03, 0.98),
+        "Saturation": "1.100",
+    },
+}
+
+TRANSITIONS: dict[str, dict] = {
+    "glitch": {
+        "description": "Digital/Urban: RGB-Channel-Shift + Scanlines",
+        "filename": "glitch.comp",
+    },
+    "zoom_blur": {
+        "description": "Dynamisch/Action: Directional Blur mit Scale-Animation",
+        "filename": "zoom_blur.comp",
+    },
+    "light_leak": {
+        "description": "Cinematic/Organisch: Additive Merge mit Gradient + Opacity-Ramp",
+        "filename": "light_leak.comp",
+    },
+    "whip_pan": {
+        "description": "Vlog/Reise: Motion Blur horizontal mit schnellem Offset",
+        "filename": "whip_pan.comp",
+    },
+    "film_burn": {
+        "description": "Vintage/Retro: Überblende mit Orangeshift + Grain",
+        "filename": "film_burn.comp",
+    },
+    "dip_to_black": {
+        "description": "Professionell/Neutral: Opacity 1→0→1 über Schwarzframe",
+        "filename": "dip_to_black.comp",
+    },
+}
+
+_TEMPLATE_DIR = os.path.expanduser("~/.resolve-mcp/templates/transitions")
+
+
+@mcp.tool()
+@safe_tool
+def fx(
+    action: str,
+    look: str | None = None,
+    all_clips: bool = False,
+    transition: str | None = None,
+    track_index: int | None = None,
+    item_index: int | None = None,
+    duration: int | None = None,
+    text: str | None = None,
+    font: str | None = None,
+    size: float | None = None,
+    color: str | None = None,
+    extrusion: float | None = None,
+    position_x: float | None = None,
+    position_y: float | None = None,
+    clip_index: int | None = None,
+) -> dict:
+    """Visual effects: Filmlooks, Fusion transitions, 3D camera-tracked text.
+
+    Actions:
+    - "list_looks": List available Filmlook presets with descriptions
+    - "apply_look": Apply a CDL look preset. Requires: look. Optional: clip_index (1-based, default=current), all_clips=True
+    - "list_transitions": List available Fusion transition types
+    - "install_templates": Generate .comp template files in ~/.resolve-mcp/templates/transitions/
+    - "add_transition": Insert a Fusion transition between two clips. Requires: transition, track_index, item_index, duration (frames)
+    - "create_3d_text": Create 3D camera-tracked text on a clip. Requires: text, clip_index. Optional: font, size, color (#hex), extrusion, position_x, position_y
+
+    Args:
+        action: The action to perform
+        look: Look preset name (for apply_look)
+        all_clips: Apply look to all clips on video track 1 (for apply_look)
+        transition: Transition type name (for add_transition)
+        track_index: Video track index, 1-based (for add_transition)
+        item_index: Clip index, 1-based — transition inserted between item_index and item_index+1 (for add_transition)
+        duration: Transition duration in frames (for add_transition)
+        text: 3D text content (for create_3d_text)
+        font: Font name, default 'Helvetica Neue' (for create_3d_text)
+        size: Text size 0.0–1.0, default 0.3 (for create_3d_text)
+        color: Hex color e.g. '#FFFFFF', default white (for create_3d_text)
+        extrusion: 3D extrusion depth 0.0–1.0, default 0.05 (for create_3d_text)
+        position_x: X position in 3D space -1.0 to 1.0, default 0.0 (for create_3d_text)
+        position_y: Y position in 3D space -1.0 to 1.0, default 0.0 (for create_3d_text)
+        clip_index: Clip index on video track 1, 1-based (for apply_look and create_3d_text)
+    """
+    if action == "list_looks":
+        return _ok(looks={name: v["description"] for name, v in LOOKS.items()})
+
+    elif action == "list_transitions":
+        return _ok(transitions={name: v["description"] for name, v in TRANSITIONS.items()})
+
+    elif action == "apply_look":
+        return _fx_apply_look(look, clip_index, all_clips)
+
+    elif action == "install_templates":
+        return _fx_install_templates()
+
+    elif action == "add_transition":
+        return _fx_add_transition(transition, track_index, item_index, duration)
+
+    elif action == "create_3d_text":
+        return _fx_create_3d_text(text, clip_index, font, size, color, extrusion, position_x, position_y)
+
+    else:
+        return _err(
+            f"Unknown action: {action}. Valid: list_looks, apply_look, list_transitions, "
+            "install_templates, add_transition, create_3d_text"
+        )
+
+
+def _fx_apply_look(look, clip_index, all_clips):
+    return _err("Not yet implemented")
+
+def _fx_install_templates():
+    return _err("Not yet implemented")
+
+def _fx_add_transition(transition, track_index, item_index, duration):
+    return _err("Not yet implemented")
+
+def _fx_create_3d_text(text, clip_index, font, size, color, extrusion, position_x, position_y):
+    return _err("Not yet implemented")
+
+
 def _setup_pid_file() -> None:
     """Write PID file and warn if another instance appears to be running."""
     import atexit
