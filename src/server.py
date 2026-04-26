@@ -2977,6 +2977,8 @@ def fx(
     - "install_templates": Generate .comp template files in ~/.resolve-mcp/templates/transitions/
     - "add_transition": Insert a Fusion transition between two clips. Requires: transition, track_index, item_index, duration (frames)
     - "create_3d_text": Create 3D camera-tracked text on a clip. Requires: text, clip_index. Optional: font, size, color (#hex), extrusion, position_x, position_y
+    - "create_flythrough_title": Animated Camera3D flies through 3D text letters. Requires: text, clip_index. Optional: font, size, color (#hex), extrusion
+    - "reimport_flythrough_comp": Re-generate and re-import flythrough .comp into existing Fusion Composition clip (no new clip inserted). Requires: text. Optional: font, size, color (#hex), extrusion
 
     Args:
         action: The action to perform
@@ -2986,14 +2988,14 @@ def fx(
         track_index: Video track index, 1-based (for add_transition)
         item_index: Clip index, 1-based — transition inserted between item_index and item_index+1 (for add_transition)
         duration: Transition duration in frames (for add_transition)
-        text: 3D text content (for create_3d_text)
-        font: Font name, default 'Helvetica Neue' (for create_3d_text)
-        size: Text size 0.0–1.0, default 0.3 (for create_3d_text)
-        color: Hex color e.g. '#FFFFFF', default white (for create_3d_text)
-        extrusion: 3D extrusion depth 0.0–1.0, default 0.05 (for create_3d_text)
+        text: 3D text content (for create_3d_text / create_flythrough_title)
+        font: Font name, default 'Helvetica Neue' (for create_3d_text / create_flythrough_title)
+        size: Text size 0.0–1.0, default 0.3 (for create_3d_text / create_flythrough_title)
+        color: Hex color e.g. '#FFFFFF', default white (for create_3d_text / create_flythrough_title)
+        extrusion: 3D extrusion depth 0.0–1.0, default 0.05 (for create_3d_text / create_flythrough_title)
         position_x: X position in 3D space -1.0 to 1.0, default 0.0 (for create_3d_text)
         position_y: Y position in 3D space -1.0 to 1.0, default 0.0 (for create_3d_text)
-        clip_index: Clip index on video track 1, 1-based (for apply_look and create_3d_text)
+        clip_index: Clip index on video track 1, 1-based (for apply_look, create_3d_text, create_flythrough_title)
     """
     if action == "list_looks":
         return _ok(looks={name: v["description"] for name, v in LOOKS.items()})
@@ -3013,10 +3015,17 @@ def fx(
     elif action == "create_3d_text":
         return _fx_create_3d_text(text, clip_index, font, size, color, extrusion, position_x, position_y)
 
+    elif action == "create_flythrough_title":
+        return _fx_create_flythrough_title(text, clip_index, font, size, color, extrusion)
+
+    elif action == "reimport_flythrough_comp":
+        return _fx_reimport_flythrough_comp(text, font, size, color, extrusion)
+
     else:
         return _err(
             f"Unknown action: {action}. Valid: list_looks, apply_look, list_transitions, "
-            "install_templates, add_transition, create_3d_text"
+            "install_templates, add_transition, create_3d_text, create_flythrough_title, "
+            "reimport_flythrough_comp"
         )
 
 
@@ -3071,17 +3080,117 @@ def _fx_apply_look(look: str | None, clip_index: int | None, all_clips: bool) ->
     return _ok(look=look, clip=item.GetName(), applied=bool(result))
 
 
+def _comp_text(transition_name: str) -> str:
+    """Return Fusion .comp file content as text for the given transition."""
+
+    def _tool(name, tool_type, inputs: dict, pos: tuple) -> str:
+        lines = [f"\t\t{name} = {tool_type} {{"]
+        if tool_type == "MediaIn":
+            lines.append(f"\t\t\tClips = {{ Clip {{ ID = \"Clip_{name}\", }} }},")
+        if inputs:
+            lines.append("\t\t\tInputs = {")
+            for k, v in inputs.items():
+                if isinstance(v, str) and v.startswith("__expr__"):
+                    expr = v[len("__expr__"):]
+                    lines.append(f'\t\t\t\t{k} = Input {{ Expression = "{expr}", }},')
+                elif isinstance(v, str) and v.startswith("__src__"):
+                    src_op, src_out = v[len("__src__"):].split(".", 1)
+                    lines.append(f'\t\t\t\t{k} = Input {{ SourceOp = "{src_op}", Source = "{src_out}", }},')
+                elif isinstance(v, (int, float)):
+                    lines.append(f"\t\t\t\t{k} = Input {{ Value = {v}, }},")
+                else:
+                    lines.append(f'\t\t\t\t{k} = Input {{ Value = "{v}", }},')
+            lines.append("\t\t\t},")
+        lines.append(f"\t\t\tViewInfo = OperatorInfo {{ Pos = {{ {pos[0]}, {pos[1]} }} }},")
+        lines.append("\t\t},")
+        return "\n".join(lines)
+
+    S = "__src__"
+    E = "__expr__"
+
+    if transition_name == "dip_to_black":
+        tools = [
+            _tool("MediaIn1", "MediaIn", {}, (-165, 49.5)),
+            _tool("MediaIn2", "MediaIn", {}, (-165, 148.5)),
+            _tool("Background1", "Background", {
+                "Width": 1920, "Height": 1080,
+                "TopLeftRed": 0, "TopLeftGreen": 0, "TopLeftBlue": 0, "TopLeftAlpha": 1,
+            }, (-55, 99.0)),
+            _tool("Merge1", "Merge", {
+                "Background": S + "Background1.Output",
+                "Foreground": S + "MediaIn1.Output",
+                "Blend": E + "iif(time/comp.RenderEnd < 0.5, 1.0 - (time/comp.RenderEnd) * 2.0, 0.0)",
+            }, (55, 49.5)),
+            _tool("Merge2", "Merge", {
+                "Background": S + "Merge1.Output",
+                "Foreground": S + "MediaIn2.Output",
+                "Blend": E + "iif(time/comp.RenderEnd > 0.5, (time/comp.RenderEnd - 0.5) * 2.0, 0.0)",
+            }, (165, 49.5)),
+            _tool("MediaOut1", "MediaOut", {"Input": S + "Merge2.Output"}, (275, 49.5)),
+        ]
+
+    elif transition_name == "zoom_blur":
+        tools = [
+            _tool("MediaIn1", "MediaIn", {}, (-165, 49.5)),
+            _tool("MediaIn2", "MediaIn", {}, (-165, 148.5)),
+            _tool("Blur1", "Blur", {
+                "Input": S + "MediaIn1.Output",
+                "XBlurSize": E + "(time/comp.RenderEnd) * 30",
+                "YBlurSize": E + "(time/comp.RenderEnd) * 30",
+            }, (-55, 49.5)),
+            _tool("Transform1", "Transform", {
+                "Input": S + "Blur1.Output",
+                "Size": E + "1.0 + (time/comp.RenderEnd) * 0.3",
+            }, (55, 49.5)),
+            _tool("Merge1", "Merge", {
+                "Background": S + "Transform1.Output",
+                "Foreground": S + "MediaIn2.Output",
+                "Blend": E + "time/comp.RenderEnd",
+            }, (165, 49.5)),
+            _tool("MediaOut1", "MediaOut", {"Input": S + "Merge1.Output"}, (275, 49.5)),
+        ]
+
+    elif transition_name == "light_leak":
+        tools = [
+            _tool("MediaIn1", "MediaIn", {}, (-165, 49.5)),
+            _tool("MediaIn2", "MediaIn", {}, (-165, 148.5)),
+            _tool("Background1", "Background", {
+                "Width": 1920, "Height": 1080,
+                "TopLeftRed": 1, "TopLeftGreen": 0.95, "TopLeftBlue": 0.85, "TopLeftAlpha": 1,
+            }, (-55, 99.0)),
+            _tool("Merge1", "Merge", {
+                "Background": S + "MediaIn1.Output",
+                "Foreground": S + "Background1.Output",
+                "Blend": E + "iif(time/comp.RenderEnd < 0.5, time/comp.RenderEnd*2, 1.0-(time/comp.RenderEnd-0.5)*2)",
+            }, (55, 49.5)),
+            _tool("Merge2", "Merge", {
+                "Background": S + "Merge1.Output",
+                "Foreground": S + "MediaIn2.Output",
+                "Blend": E + "iif(time/comp.RenderEnd > 0.5, (time/comp.RenderEnd-0.5)*2, 0.0)",
+            }, (165, 49.5)),
+            _tool("MediaOut1", "MediaOut", {"Input": S + "Merge2.Output"}, (275, 49.5)),
+        ]
+
+    else:
+        # glitch, whip_pan, film_burn — cross-dissolve base
+        tools = [
+            _tool("MediaIn1", "MediaIn", {}, (-110, 49.5)),
+            _tool("MediaIn2", "MediaIn", {}, (-110, 115.5)),
+            _tool("Merge1", "Merge", {
+                "Background": S + "MediaIn1.Output",
+                "Foreground": S + "MediaIn2.Output",
+                "Blend": E + "time/comp.RenderEnd",
+            }, (55, 49.5)),
+            _tool("MediaOut1", "MediaOut", {"Input": S + "Merge1.Output"}, (165, 49.5)),
+        ]
+
+    body = "\n".join(tools)
+    return "{\n\tTools = ordered() {\n" + body + "\n\t},\n\tActiveTool = \"MediaOut1\",\n}\n"
+
+
 def _fx_install_templates() -> dict:
-    """Generate Fusion .comp transition templates in _TEMPLATE_DIR."""
+    """Write Fusion .comp transition templates to _TEMPLATE_DIR as text files."""
     os.makedirs(_TEMPLATE_DIR, exist_ok=True)
-
-    r = resolve.connect()
-    if not r:
-        return _err("Not connected to DaVinci Resolve")
-
-    fusion = r.Fusion()
-    if not fusion:
-        return _err("Could not access Fusion API")
 
     created = []
     errors = []
@@ -3092,19 +3201,10 @@ def _fx_install_templates() -> dict:
             created.append(f"{name} (skipped, already exists)")
             continue
         try:
-            comp = fusion.NewComp()
-            if not comp:
-                errors.append(f"{name}: NewComp() returned None")
-                continue
-
-            _build_transition_comp(comp, name)
-
-            if comp.Save(path):
-                created.append(name)
-            else:
-                errors.append(f"{name}: Save() returned False for {path}")
-
-            comp.Close()
+            content = _comp_text(name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            created.append(name)
         except Exception as e:
             errors.append(f"{name}: {e}")
 
@@ -3420,11 +3520,8 @@ def _fx_create_3d_text(
         _set_input(transform, "Translation.X",  pos_x)
         _set_input(transform, "Translation.Y",  pos_y)
 
-        material = comp.AddTool("PhongMaterial", 0, 5)
-        _set_input(material, "DiffuseColorR", r)
-        _set_input(material, "DiffuseColorG", g)
-        _set_input(material, "DiffuseColorB", b)
-        _connect(text3d, "MaterialInput", material, "Output")
+        # PhongMaterial not available in DaVinci Resolve's Fusion — skip material,
+        # Text3D will use Fusion's default material (white shading).
 
     finally:
         comp.Unlock()
@@ -3450,6 +3547,460 @@ def _fx_create_3d_text(
         message=(
             f"Fusion-Comp auf '{clip_name}' aufgebaut. "
             "Öffne Fusion und klicke 'Track Forward' auf dem CameraTracker-Node."
+        ),
+    )
+
+
+def _flythrough_comp_text(
+    text: str,
+    font: str,
+    size: float,
+    extrusion: float,
+    r: float, g: float, b: float,
+    last_frame: int,
+    width: int = 3840,
+    height: int = 2160,
+    include_video_bg: bool = True,
+) -> str:
+    """Generate Fusion .comp text for a flythrough title effect.
+
+    include_video_bg=True:  comp has MediaIn1 + Merge1 (for ImportFusionComp on clip).
+    include_video_bg=False: comp outputs transparent 3D text only (for Fusion Generator on Track 2).
+    """
+    # Escape text for Lua string
+    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
+
+    media_in_node = """\t\tMediaIn1 = MediaIn {
+\t\t\tClips = { Clip { ID = "Clip_MediaIn1", } },
+\t\t\tViewInfo = OperatorInfo { Pos = { -495, 0 } },
+\t\t},
+""" if include_video_bg else ""
+
+    if include_video_bg:
+        final_merge = """\t\tMerge1 = Merge {
+\t\t\tInputs = {
+\t\t\t\tBackground = Input { SourceOp = "MediaIn1", Source = "Output", },
+\t\t\t\tForeground = Input { SourceOp = "Renderer3D1", Source = "Output", },
+\t\t\t\tPerformDepthMerge = Input { Value = 0, },
+\t\t\t},
+\t\t\tViewInfo = OperatorInfo { Pos = { 330, 0 } },
+\t\t},
+"""
+        media_out_src = "Merge1"
+    else:
+        final_merge = ""
+        media_out_src = "Renderer3D1"
+
+    return (
+        "{\n\tTools = ordered() {\n"
+        + media_in_node
+        + f"""\t\tText3D1 = Text3D {{
+\t\t\tInputs = {{
+\t\t\t\tStyledText = Input {{ Value = "{safe_text}", }},
+\t\t\t\tFont = Input {{ Value = "{font}", }},
+\t\t\t\tSize = Input {{ Value = {size:.4f}, }},
+\t\t\t\tExtrudeDepth = Input {{ Value = {extrusion:.4f}, }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ -330, 99 }} }},
+\t\t}},
+\t\tTranslation_Z_Spline = BezierSpline {{
+\t\t\tSplineColor = {{ Red = 255, Green = 128, Blue = 0 }},
+\t\t\tKeyFrames = {{
+\t\t\t\t[0] = {{ -8.0000, RH = {{ 0.333, -8.0000 }}, Flags = {{ Linear = true }} }},
+\t\t\t\t[{last_frame}] = {{ 2.0000, LH = {{ {last_frame - 0.333:.3f}, 2.0000 }}, Flags = {{ Linear = true }} }},
+\t\t\t}},
+\t\t}},
+\t\tTransform3D1 = Transform3D {{
+\t\t\tInputs = {{
+\t\t\t\tSceneInput1 = Input {{ SourceOp = "Text3D1", Source = "Output", }},
+\t\t\t\t["Translation.Z"] = Input {{ SourceOp = "Translation_Z_Spline", Source = "Value", }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ -165, 99 }} }},
+\t\t}},
+\t\tCamera3D1 = Camera3D {{
+\t\t\tInputs = {{
+\t\t\t\tAoV = Input {{ Value = 60.0, }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ -165, 198 }} }},
+\t\t}},
+\t\tMerge3D1 = Merge3D {{
+\t\t\tInputs = {{
+\t\t\t\tSceneInput1 = Input {{ SourceOp = "Transform3D1", Source = "Output", }},
+\t\t\t\tSceneInput2 = Input {{ SourceOp = "Camera3D1", Source = "Output", }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ 0, 99 }} }},
+\t\t}},
+\t\tBackground1 = Background {{
+\t\t\tInputs = {{
+\t\t\t\tWidth = Input {{ Value = {width}, }},
+\t\t\t\tHeight = Input {{ Value = {height}, }},
+\t\t\t\tTopLeftRed = Input {{ Value = 0, }},
+\t\t\t\tTopLeftGreen = Input {{ Value = 0, }},
+\t\t\t\tTopLeftBlue = Input {{ Value = 0, }},
+\t\t\t\tTopLeftAlpha = Input {{ Value = 0, }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ 0, 198 }} }},
+\t\t}},
+\t\tRenderer3D1 = Renderer3D {{
+\t\t\tInputs = {{
+\t\t\t\tWidth = Input {{ Value = {width}, }},
+\t\t\t\tHeight = Input {{ Value = {height}, }},
+\t\t\t\tUseFrameFormatSettings = Input {{ Value = 1, }},
+\t\t\t\tSceneInput = Input {{ SourceOp = "Merge3D1", Source = "Output", }},
+\t\t\t\tCamera = Input {{ SourceOp = "Camera3D1", Source = "Output", }},
+\t\t\t\tBackground = Input {{ SourceOp = "Background1", Source = "Output", }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ 165, 99 }} }},
+\t\t}},
+"""
+        + final_merge
+        + f"""\t\tMediaOut1 = MediaOut {{
+\t\t\tInputs = {{
+\t\t\t\tInput = Input {{ SourceOp = "{media_out_src}", Source = "Output", }},
+\t\t\t}},
+\t\t\tViewInfo = OperatorInfo {{ Pos = {{ 495, 0 }} }},
+\t\t}},
+\t}},
+\tActiveTool = "Renderer3D1",
+}}
+"""
+    )
+
+
+def _fx_create_flythrough_title(
+    text: str | None,
+    clip_index: int | None,
+    font: str | None,
+    size: float | None,
+    color: str | None,
+    extrusion: float | None,
+) -> dict:
+    """Flythrough 3D title on Video Track 2 above the source clip.
+
+    Strategy (reliable):
+    1. Add Video Track 2 if needed
+    2. Position playhead at start of source clip
+    3. InsertFusionCompositionIntoTimeline() → creates a Fusion Generator clip on
+       the topmost free track (Track 2) — this IS rendered by Resolve
+    4. ImportFusionComp() loads transparent 3D-text comp into the Fusion clip
+    5. Track 1 (video) composites under Track 2 (3D title) automatically
+    """
+    if not text:
+        return _err("'text' is required")
+    if not clip_index:
+        return _err("'clip_index' is required (1-based index on video track 1)")
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    items = list(tl.GetItemListInTrack("video", 1))
+    if not items or clip_index < 1 or clip_index > len(items):
+        return _err(f"clip_index {clip_index} out of range (1–{len(items) if items else 0})")
+
+    item = items[clip_index - 1]
+    duration = item.GetDuration()
+    last = max(int(duration) - 1, 1)
+
+    font = font or "Helvetica Neue"
+    size = size if size is not None else 0.5
+    color_hex = color or "#FFFFFF"
+    extrusion = extrusion if extrusion is not None else 0.2
+
+    try:
+        cr, cg, cb = _parse_hex_color(color_hex)
+    except (ValueError, IndexError):
+        return _err(f"Invalid color '{color_hex}'. Use hex format like '#FF8800'")
+
+    try:
+        w = int(proj.GetSetting("timelineResolutionWidth") or 3840)
+        h = int(proj.GetSetting("timelineResolutionHeight") or 2160)
+    except Exception:
+        w, h = 3840, 2160
+
+    # Write transparent .comp (no video background — Track 1 provides it)
+    comp_path = os.path.expanduser(f"~/.resolve-mcp/flythrough_{clip_index}.comp")
+    os.makedirs(os.path.dirname(comp_path), exist_ok=True)
+    comp_text = _flythrough_comp_text(
+        text, font, size, extrusion, cr, cg, cb, last, w, h,
+        include_video_bg=False,
+    )
+    with open(comp_path, "w", encoding="utf-8") as f:
+        f.write(comp_text)
+
+    # Ensure Video Track 2 exists
+    track_count = tl.GetTrackCount("video")
+    if track_count < 2:
+        tl.AddTrack("video")
+
+    # Position playhead at start of source clip
+    clip_start = item.GetStart()
+    fps = 25.0
+    try:
+        fps = float(proj.GetSetting("timelineFrameRate") or 25)
+    except Exception:
+        pass
+    h_tc  = int(clip_start / (fps * 3600))
+    m_tc  = int((clip_start % (fps * 3600)) / (fps * 60))
+    s_tc  = int((clip_start % (fps * 60)) / fps)
+    f_tc  = int(clip_start % fps)
+    tc = f"{h_tc:02d}:{m_tc:02d}:{s_tc:02d}:{f_tc:02d}"
+    tl.SetCurrentTimecode(tc)
+
+    # Insert Fusion Generator clip — goes on Track 2 (topmost free track)
+    fusion_item = tl.InsertFusionCompositionIntoTimeline()
+    if not fusion_item:
+        return _err(
+            "InsertFusionCompositionIntoTimeline() failed. "
+            "Check that the playhead is at a valid position."
+        )
+
+    # Load the flythrough comp into the Fusion clip
+    imported = fusion_item.ImportFusionComp(comp_path)
+    if not imported:
+        return _err(f"ImportFusionComp() failed for '{comp_path}'")
+
+    fusion_clip_name = fusion_item.GetName()
+
+    return _ok(
+        status="complete",
+        text=text,
+        source_clip=item.GetName(),
+        fusion_clip=fusion_clip_name,
+        font=font,
+        color=color_hex,
+        track=2,
+        comp_path=comp_path,
+        message=(
+            f"Flythrough '{text}' als Fusion-Clip auf Track 2 erstellt. "
+            f"Text fliegt von Z-8 → Z+2 über {last+1} Frames. "
+            f"Video '{item.GetName()}' liegt auf Track 1 als Hintergrund."
+        ),
+    )
+
+
+def _fx_reimport_flythrough_comp(
+    text: str | None,
+    font: str | None,
+    size: float | None,
+    color: str | None,
+    extrusion: float | None,
+) -> dict:
+    """Build flythrough 3D scene directly on the live Fusion comp via scriptapp("Fusion").
+
+    Approach:
+    1. Find the Fusion Generator clip on the timeline
+    2. Set playhead to its start frame
+    3. Switch Resolve to the Fusion page so the clip becomes the active comp
+    4. Connect to the live Fusion app via scriptapp("Fusion")
+    5. Get GetCurrentComp() and rebuild nodes from scratch via Fusion Python API
+    6. Set BezierSpline keyframes using input[frame] = value syntax
+    7. Switch back to Edit page
+    """
+    import time as _time
+
+    if not text:
+        return _err("'text' is required")
+
+    proj, tl, err = resolve.get_timeline()
+    if err:
+        return err
+
+    r = resolve.connect()
+    if not r:
+        return _err("Not connected to Resolve")
+
+    font = font or "Helvetica Neue"
+    size_val = size if size is not None else 0.5
+    color_hex = color or "#FFFFFF"
+    extrusion_val = extrusion if extrusion is not None else 0.2
+
+    try:
+        cr, cg, cb = _parse_hex_color(color_hex)
+    except (ValueError, IndexError):
+        return _err(f"Invalid color '{color_hex}'")
+
+    try:
+        w = int(proj.GetSetting("timelineResolutionWidth") or 3840)
+        h = int(proj.GetSetting("timelineResolutionHeight") or 2160)
+    except Exception:
+        w, h = 3840, 2160
+
+    # Find first Fusion Composition clip on any video track
+    fusion_item = None
+    fusion_duration = 120
+    fusion_start = 86400
+    track_count = tl.GetTrackCount("video")
+    for ti in range(1, track_count + 1):
+        items = list(tl.GetItemListInTrack("video", ti))
+        for it in items:
+            if "Fusion" in (it.GetName() or ""):
+                fusion_item = it
+                fusion_duration = int(it.GetDuration())
+                fusion_start = int(it.GetStart())
+                break
+        if fusion_item:
+            break
+
+    if not fusion_item:
+        return _err("No 'Fusion Composition' clip found. Run create_flythrough_title first.")
+
+    last = max(fusion_duration - 1, 1)
+
+    # Set playhead to start of Fusion clip
+    fps = 24.0
+    try:
+        fps = float(proj.GetSetting("timelineFrameRate") or 24)
+    except Exception:
+        pass
+    h_tc = int(fusion_start / (fps * 3600))
+    m_tc = int((fusion_start % (fps * 3600)) / (fps * 60))
+    s_tc = int((fusion_start % (fps * 60)) / fps)
+    f_tc = int(fusion_start % fps)
+    tc = f"{h_tc:02d}:{m_tc:02d}:{s_tc:02d}:{f_tc:02d}"
+    tl.SetCurrentTimecode(tc)
+
+    # Switch to Fusion page so the clip becomes the active comp
+    r.OpenPage("fusion")
+    _time.sleep(1.0)
+
+    # Connect to the live Fusion app
+    try:
+        module_path = os.environ.get(
+            "PYTHONPATH",
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
+        )
+        if module_path not in sys.path:
+            sys.path.insert(0, module_path)
+        import DaVinciResolveScript as dvr
+        fusion_app = dvr.scriptapp("Fusion")
+    except Exception as e:
+        r.OpenPage("edit")
+        return _err(f"Could not connect to Fusion app: {e}")
+
+    if not fusion_app:
+        r.OpenPage("edit")
+        return _err("scriptapp('Fusion') returned None. Make sure Resolve is on the Fusion page.")
+
+    comp = fusion_app.GetCurrentComp()
+    if not comp:
+        r.OpenPage("edit")
+        return _err("GetCurrentComp() returned None — no active comp on Fusion page.")
+
+    # Build the 3D flythrough scene on the live comp
+    comp.Lock()
+    steps = []
+    try:
+        # Delete old named tools from previous imports (silently skip if not found)
+        for old_name in [
+            "PhongMaterial1", "Text3D1", "Translation_Z_Spline",
+            "Transform3D1", "Camera3D1", "Merge3D1",
+            "Background1", "Renderer3D1",
+            # Names from potential duplicate runs
+            "Text3D2", "Transform3D2", "Camera3D2", "Merge3D2",
+            "Background2", "Renderer3D2", "MediaOut2",
+            "Text3D3", "Transform3D3", "Camera3D3", "Merge3D3",
+            "Background3", "Renderer3D3", "MediaOut3",
+        ]:
+            try:
+                old = comp.FindTool(old_name)
+                if old:
+                    comp.DeleteTools({1: old})
+            except Exception:
+                pass
+        steps.append("cleared_old")
+
+        # Transparent background (alpha=0)
+        bg = comp.AddTool("Background", -1, 3)
+        _set_input(bg, "TopLeftRed",   0.0)
+        _set_input(bg, "TopLeftGreen", 0.0)
+        _set_input(bg, "TopLeftBlue",  0.0)
+        _set_input(bg, "TopLeftAlpha", 0.0)
+        _set_input(bg, "Width",  float(w))
+        _set_input(bg, "Height", float(h))
+        steps.append("bg")
+
+        # 3D Text (no material — uses Fusion default = white shading)
+        text3d = comp.AddTool("Text3D", -3, 1)
+        _set_input(text3d, "StyledText",   text)
+        _set_input(text3d, "Font",         font)
+        _set_input(text3d, "Size",         size_val)
+        _set_input(text3d, "ExtrudeDepth", extrusion_val)
+        steps.append("text3d")
+
+        # Transform3D with Z animation
+        transform = comp.AddTool("Transform3D", -1, 1)
+        _connect(transform, "SceneInput1", text3d, "Output")
+        steps.append("transform3d")
+
+        # Keyframes via comp time scrubbing
+        kf_ok = False
+        try:
+            comp.SetAttrs({"COMPN_CurrentTime": 0})
+            _set_input(transform, "Translation.Z", -8.0)
+            comp.SetAttrs({"COMPN_CurrentTime": last})
+            _set_input(transform, "Translation.Z",  2.0)
+            comp.SetAttrs({"COMPN_CurrentTime": 0})
+            kf_ok = True
+            steps.append("keyframes_ok")
+        except Exception as ke:
+            steps.append(f"keyframes_err:{ke}")
+        if not kf_ok:
+            _set_input(transform, "Translation.Z", -4.0)
+
+        # Camera
+        camera = comp.AddTool("Camera3D", -1, 2)
+        _set_input(camera, "AoV", 60.0)
+        steps.append("camera")
+
+        # Merge3D
+        merge = comp.AddTool("Merge3D", 1, 1)
+        _connect(merge, "SceneInput1", transform, "Output")
+        _connect(merge, "SceneInput2", camera, "Output")
+        steps.append("merge3d")
+
+        # Renderer3D
+        renderer = comp.AddTool("Renderer3D", 3, 1)
+        _connect(renderer, "SceneInput", merge,  "Output")
+        _connect(renderer, "Camera",     camera, "Output")
+        _connect(renderer, "Background", bg,     "Output")
+        _set_input(renderer, "Width",  float(w))
+        _set_input(renderer, "Height", float(h))
+        _set_input(renderer, "UseFrameFormatSettings", 1.0)
+        steps.append("renderer3d")
+
+        # Connect to existing MediaOut1, or create new one if absent
+        media_out = comp.FindTool("MediaOut1")
+        if media_out:
+            _connect(media_out, "Input", renderer, "Output")
+            steps.append("mediaout_reconnected")
+        else:
+            out = comp.AddTool("MediaOut", 5, 0)
+            _connect(out, "Input", renderer, "Output")
+            steps.append("mediaout_new")
+
+    except Exception as e:
+        comp.Unlock()
+        r.OpenPage("edit")
+        return _err(f"Fusion scene build failed at step {steps}: {e}")
+
+    comp.Unlock()
+    _time.sleep(0.5)
+    r.OpenPage("edit")
+
+    tools = comp.GetToolList(False) or {}
+
+    return _ok(
+        status="complete",
+        text=text,
+        fusion_clip=fusion_item.GetName(),
+        duration_frames=fusion_duration,
+        last_frame=last,
+        tools_created=len(tools),
+        steps=steps,
+        message=(
+            f"Flythrough-Scene via live Fusion-API aufgebaut: '{text}', "
+            f"{fusion_duration} Frames, Z: -8 → +2 über {last+1} Frames."
         ),
     )
 
